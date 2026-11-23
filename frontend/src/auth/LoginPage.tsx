@@ -16,6 +16,10 @@
  * 10.10.2026 сеанс обрывает и сброс пароля — вход называет и его. С аудита
  * 20.11.2026 — и простой: причину вход показывает словами сервера («Сеанс
  * закончился: долго не было действий — войдите снова»), если он её назвал.
+ *
+ * **У учётки с кодом пароль — только первый шаг** (23.11.2026): сервер отвечает вызовом ко
+ * второму (`SecondStepError`), и вход продолжается здесь же — кодом из приложения (`CodeStep`)
+ * или, если роль требует код, а он не включён, его включением (`EnrollStep`).
  */
 
 import {
@@ -33,20 +37,64 @@ import { useForm } from '@mantine/form';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { TooManyAttemptsError } from '../api/client';
+import { SecondStepError, TooManyAttemptsError } from '../api/client';
+import type { LoginStep } from '../api/client';
+import type { Me, SignedIn } from '../api/types';
 import { SERVICE_NAME } from '../brand';
 import { useSession } from './AuthProvider';
+import { CodeStep } from './CodeStep';
+import { EnrollStep } from './EnrollStep';
 
 interface FromState {
   from?: string;
 }
 
+interface Pending {
+  step: LoginStep;
+  challenge: string;
+}
+
+interface NextStepProps {
+  pending: Pending;
+  accept: (opened: SignedIn) => Me;
+  enter: (user: Me) => void;
+  onRestart: () => void;
+}
+
+/** Второй шаг после верного пароля: код — или включение кода, если роль его требует. */
+function NextStep({ pending, accept, enter, onRestart }: NextStepProps) {
+  if (pending.step === 'code') {
+    return (
+      <CodeStep
+        challenge={pending.challenge}
+        onSignedIn={(opened) => enter(accept(opened))}
+        onRestart={onRestart}
+      />
+    );
+  }
+  return <EnrollStep challenge={pending.challenge} onDone={enter} onRestart={onRestart} />;
+}
+
+/** Включение кода шире входа: ключ, ссылка и коды восстановления в 400 px теснятся. */
+function cardWidth(pending: Pending | null): number {
+  return pending?.step === 'enroll' ? 480 : 400;
+}
+
 export function LoginPage() {
-  const { signIn, cutOff } = useSession();
+  const { signIn, accept, cutOff } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [refusal, setRefusal] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const [pending, setPending] = useState<Pending | null>(null);
+
+  /** Вошли: разовый пароль — сразу на смену, остальное всё равно закрыто. */
+  const enter = (user: Me) => {
+    const goTo = user.must_change_password
+      ? '/password'
+      : ((location.state as FromState | null)?.from ?? '/');
+    void navigate(goTo, { replace: true });
+  };
 
   const form = useForm({
     initialValues: { email: '', password: '' },
@@ -60,13 +108,14 @@ export function LoginPage() {
     setRefusal(null);
     setWaiting(false);
     try {
-      const user = await signIn(email, password);
-      // Разовый пароль — сразу на смену: остальное всё равно закрыто.
-      const goTo = user.must_change_password
-        ? '/password'
-        : ((location.state as FromState | null)?.from ?? '/');
-      void navigate(goTo, { replace: true });
+      enter(await signIn(email, password));
     } catch (error) {
+      if (error instanceof SecondStepError) {
+        // Пароль подошёл — дальше второй шаг; набранный пароль на экране больше не нужен.
+        form.setFieldValue('password', '');
+        setPending({ step: error.step, challenge: error.challenge });
+        return;
+      }
       if (error instanceof TooManyAttemptsError) {
         setWaiting(true);
         setRefusal(error.message);
@@ -79,8 +128,16 @@ export function LoginPage() {
   return (
     // Поле по краям — на телефоне карточка иначе встаёт вплотную к рамке экрана.
     <Center mih="100dvh" px="md" py="xl">
-      <Card className="glass riseIn" w="100%" maw={400} p="xl">
-        <form onSubmit={submit}>
+      <Card className="glass riseIn" w="100%" maw={cardWidth(pending)} p="xl">
+        {pending !== null && (
+          <NextStep
+            pending={pending}
+            accept={accept}
+            enter={enter}
+            onRestart={() => setPending(null)}
+          />
+        )}
+        <form onSubmit={submit} hidden={pending !== null}>
           <Stack>
             <div>
               <Title order={3}>{SERVICE_NAME}</Title>

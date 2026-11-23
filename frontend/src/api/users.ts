@@ -25,3 +25,11 @@ export function resetPassword(id: number, password: string): Promise<OneTimePass
     body: { current_password: password },
   });
 }
+
+/** Сбросить чужой вход с кодом — тоже с паролем админа (23.11.2026): телефон потерян. */
+export function resetCode(id: number, password: string): Promise<UserCard> {
+  return request<UserCard>(`/users/${id}/totp/reset`, {
+    method: 'POST',
+    body: { current_password: password },
+  });
+}

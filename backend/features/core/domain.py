@@ -229,6 +229,13 @@ class AuditAction(StrEnum):
     # сколько неудач и на сколько минут. Отказы во время паузы в журнал не пишутся — только начало.
     LOGIN_PAUSED = "login_paused"
     PASSWORD_CHANGED = "password_changed"  # noqa: S105 — это название события, не пароль
+    # Вход с кодом из приложения (`access/second_step.py`, 23.11.2026): включён владельцем учётки,
+    # выключен им же (паролем и кодом), сброшен админом или командой на сервере — кем, видно по
+    # автору записи; вход по коду восстановления — сколько кодов осталось.
+    TOTP_ENABLED = "totp_enabled"
+    TOTP_DISABLED = "totp_disabled"
+    TOTP_RESET = "totp_reset"
+    RECOVERY_CODE_USED = "recovery_code_used"
     USER_CREATED = "user_created"
     USER_UPDATED = "user_updated"
     RUN_STARTED = "run_started"

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic_core import PydanticCustomError
 
 from backend.config import access as cfg
+from backend.features.access import second_step
 from backend.features.access.permissions import has_permission
 from backend.features.access.repository import actor_of
 from backend.features.core.domain import Permission, UserRole
@@ -98,6 +99,9 @@ class UserCard(BaseModel):
     is_active: bool
     must_change_password: bool
     last_login_at: datetime | None = None
+    #: Вход с кодом включён и обязателен ли роли (23.11.2026): отметка в списке учёток.
+    totp_enabled: bool = False
+    totp_required: bool = False
 
     @classmethod
     def of(cls, user: UserModel) -> UserCard:
@@ -111,6 +115,8 @@ class UserCard(BaseModel):
             is_active=user.is_active,
             must_change_password=user.must_change_password,
             last_login_at=user.last_login_at,
+            totp_enabled=second_step.enabled(user),
+            totp_required=second_step.required(user.role),
         )
 
 

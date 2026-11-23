@@ -3,14 +3,14 @@
  *
  * До 09.10 кто вошёл, его права и «Сменить пароль» стояли карточкой наверху
  * «Обзора»: видно только с главной, а над «Ждут человека» стояло то, что смотрят
- * раз в неделю. Теперь почта — кнопка в шапке любого экрана, роль, права и смена
- * пароля — в её меню. «Выйти» — рядом отдельной кнопкой: выход не прячется.
+ * раз в неделю. Теперь почта — кнопка в шапке любого экрана, роль, права, смена
+ * пароля и вход с кодом — в её меню. «Выйти» — рядом отдельной кнопкой: выход не прячется.
  *
  * На телефоне почта не помещается — остаётся значок с тем же названием.
  */
 
 import { Badge, Button, Group, Menu, Text } from '@mantine/core';
-import { IconChevronDown, IconKey, IconUserCircle } from '@tabler/icons-react';
+import { IconChevronDown, IconKey, IconShieldLock, IconUserCircle } from '@tabler/icons-react';
 import { Link } from 'react-router-dom';
 
 import { permissionTitle, ROLE_TITLES } from '../api/labels';
@@ -51,6 +51,19 @@ export function AccountMenu() {
         <Menu.Divider />
         <Menu.Item component={Link} to="/password" leftSection={<IconKey size={16} />}>
           Сменить пароль
+        </Menu.Item>
+        {/* Вход с кодом из приложения (23.11.2026): включить или выключить — на своём экране. */}
+        <Menu.Item
+          component={Link}
+          to="/account/code"
+          leftSection={<IconShieldLock size={16} />}
+          rightSection={
+            <Badge size="xs" variant="light" color={user.totp_enabled ? 'green' : 'gray'}>
+              {user.totp_enabled ? 'включён' : 'выключен'}
+            </Badge>
+          }
+        >
+          Вход с кодом
         </Menu.Item>
       </Menu.Dropdown>
     </Menu>

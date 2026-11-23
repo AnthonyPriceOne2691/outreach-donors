@@ -28,6 +28,12 @@
 общим паролем прокси до входа доходят только свои. **Истёкший разовый
 пароль** называется только после того, как пара подошла: его видит тот, кто
 пароль знает.
+
+**Верная пара — ещё не вход, если у учётки код** (23.11.2026, `second_step.py`): вместо пропуска —
+вызов второго шага (`SecondStep`, `challenge.py`): код включён — ввести код; роль требует код, а
+он не включён, — включить. Запись `LOGIN`, обнуление счёта неудач и пропуск — только после кода
+(`code_login.py`): пароль без кода счёт подбора не обнуляет, иначе подбирающий код с известным
+паролем обнулял бы его каждым верным паролем.
 """
 
 from __future__ import annotations
@@ -41,6 +47,8 @@ from functools import cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.access import challenge, second_step
+from backend.features.access.challenge import Step
 from backend.features.access.lockout import AccountPausedError, pause_after, refuse_while_paused
 from backend.features.access.passwords import hash_password, one_time_expired, verify_password
 from backend.features.access.repository import AccessRepository, normalize_email
@@ -99,6 +107,15 @@ class Session:
     must_change_password: bool
 
 
+@dataclass(frozen=True, slots=True)
+class SecondStep:
+    """Пара подошла, но пропуска ещё нет: нужен второй шаг `step` по вызову `challenge`."""
+
+    step: Step
+    challenge: str
+    user_id: int
+
+
 @cache
 def _stand_in_hash() -> str:
     """Хеш для почты, которой нет: один на процесс, той же цены, что у настоящих
@@ -139,8 +156,16 @@ async def _failed(
         author_id=user.id if user else None,
         details={"email": attempted_email(email), "reason": "пара не подошла"},
     )
-    if user is None:
-        return
+    if user is not None:
+        await count_toward_pause(repository, user, moment)
+
+
+async def count_toward_pause(
+    repository: AccessRepository, user: UserModel, moment: datetime
+) -> None:
+    """Ещё одна неудача входа подряд — и, с порога, пауза входа учётки с записью о её начале
+    (`lockout.py`). Один счёт на неверный пароль и неверный код (`code_login.py`): подбор кода с
+    известным паролем встаёт на ту же паузу."""
     failures = await repository.count_failure(user.id)
     pause = pause_after(failures)
     if pause is None:
@@ -178,12 +203,28 @@ async def _refuse_matched(repository: AccessRepository, user: UserModel, moment:
         raise OneTimeExpiredError(EXPIRED)
 
 
+async def open_session(repository: AccessRepository, user: UserModel, moment: datetime) -> Session:
+    """Вход состоялся: минута входа, запись `LOGIN`, счёт неудач с нуля — и пропуск по нынешним
+    паролю и поколению пропусков учётки. Один путь для входа паролем и после второго шага."""
+    await repository.note_login(user.id, now=moment)
+    return Session(
+        token=create_token(
+            user.id, password_hash=user.password_hash, generation=user.token_generation
+        ),
+        user_id=user.id,
+        email=user.email,
+        role=user.role,
+        must_change_password=user.must_change_password,
+    )
+
+
 async def login(
     session: AsyncSession, email: str, password: str, *, now: datetime | None = None
-) -> Session:
-    """Проверить пару и выдать пропуск. Неудача пары — один и тот же отказ; учётка на паузе
-    после неудач подряд — отказ со сроком (`lockout.AccountPausedError`), разовый пароль
-    истёк — свой отказ (`OneTimeExpiredError`)."""
+) -> Session | SecondStep:
+    """Проверить пару и выдать пропуск — или, если у учётки код, вызов второго шага
+    (`SecondStep`). Неудача пары — один и тот же отказ; учётка на паузе после неудач подряд —
+    отказ со сроком (`lockout.AccountPausedError`), разовый пароль истёк — свой отказ
+    (`OneTimeExpiredError`)."""
     moment = now or datetime.now(UTC)
     repository = AccessRepository(session)
     user = await repository.by_email(email)
@@ -199,11 +240,9 @@ async def login(
         raise LoginFailedError(REFUSAL)
 
     await _refuse_matched(repository, user, moment)
-    await repository.note_login(user.id, now=moment)
-    return Session(
-        token=create_token(user.id, password_hash=user.password_hash),
-        user_id=user.id,
-        email=user.email,
-        role=user.role,
-        must_change_password=user.must_change_password,
-    )
+    step = second_step.step_for(user)
+    if step is not None:
+        return SecondStep(
+            step=step, challenge=challenge.issue(user, step, now=moment), user_id=user.id
+        )
+    return await open_session(repository, user, moment)

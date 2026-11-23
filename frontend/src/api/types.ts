@@ -37,6 +37,10 @@ export interface Me {
   permissions: Permission[];
   must_change_password: boolean;
   last_login_at: string | null;
+  /** Вход с кодом из приложения включён (23.11.2026). */
+  totp_enabled: boolean;
+  /** Роль требует вход с кодом (`AUTH_TOTP_REQUIRED_ROLES` сервера): выключить его нельзя. */
+  totp_required: boolean;
 }
 
 export interface SignedIn {
@@ -44,6 +48,20 @@ export interface SignedIn {
   token_type: string;
   expires_in_hours: number;
   user: Me;
+}
+
+/** Секрет для приложения-аутентификатора — строкой и ссылкой `otpauth://`. Один раз. */
+export interface TotpSetup {
+  secret: string;
+  uri: string;
+  issuer: string;
+  account: string;
+}
+
+/** Код включён: новый пропуск с карточкой и коды восстановления — один раз. */
+export interface TotpEnabled extends SignedIn {
+  recovery_codes: string[];
+  note: string;
 }
 
 export interface UserCard extends Me {

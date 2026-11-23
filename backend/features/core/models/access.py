@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -57,8 +57,41 @@ class UserModel(TimestampedMixin, Base):
     )
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Вход с кодом из приложения (`access/second_step.py`, 23.11.2026). Секрет — только
+    # зашифрованным ключом `AUTH_TOTP_KEY` (`access/totp_key.py`); пока `totp_enabled_at` пусто,
+    # секрет начат, но кодом не подтверждён и для входа не нужен. Последний принятый шаг времени:
+    # код того же или более раннего шага второй раз не пускает.
+    totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Поколение пропусков: включение и сброс кода прибавляют единицу, и пропуска, выданные до
+    # этого, больше не пускают — как после смены пароля (`tokens.password_stamp`).
+    token_generation: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     __table_args__ = (Index("idx_users_email", "email"),)
+
+
+class RecoveryCodeModel(Base):
+    """Код восстановления: вход без телефона, один раз (`access/recovery_codes.py`).
+
+    Хранится хешем: код — пароль на один вход, и копия базы не должна его отдавать. Строка
+    потраченного кода остаётся с `used_at` до следующего выпуска: по ней видно, сколько кодов
+    осталось.
+    """
+
+    __tablename__ = "user_recovery_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (Index("idx_recovery_codes_user", "user_id"),)
 
 
 class AuditLogModel(Base):

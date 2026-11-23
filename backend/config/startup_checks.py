@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from backend.config import access, ahrefs, outreach, serp, storage
@@ -145,6 +146,46 @@ def check_access() -> None:
             "подбирают, и пропуск администратора выписал бы себе кто угодно.\n"
             "  Сгенерировать: openssl rand -hex 32"
         )
+    check_totp()
+
+
+#: Как родить ключ шифрования секретов кода — на сервере, строкой в `.env`, нигде не печатая.
+TOTP_KEY_HOWTO = (
+    "сгенерировать на сервере: openssl rand -base64 32 — и строкой AUTH_TOTP_KEY= в .env"
+)
+
+
+#: Ключ Fernet — 32 байта в base64: 43 знака и «=» в конце. Годится и обычный алфавит base64
+#: (`openssl rand -base64 32`), и алфавит для адресов: Fernet читает оба.
+_FERNET_KEY = re.compile(r"[A-Za-z0-9+/_-]{43}=")
+
+
+def totp_key_problem(key: str) -> str | None:
+    """Что не так с ключом шифрования секретов кода — словами, без самого ключа; `None` — годен
+    или не задан. Короче, длиннее или не base64 — отказ: Fernet такой ключ не примет."""
+    if not key or _FERNET_KEY.fullmatch(key):
+        return None
+    return "не ключ Fernet: нужны ровно 32 случайных байта в base64"
+
+
+def check_totp() -> None:
+    """Вход с кодом (23.11.2026): роли с обязательным кодом заданы — нужен ключ шифрования;
+    ключ задан — он годен.
+
+    Без ключа секрет кода нечем зашифровать и нечем прочитать: учётки обязательных ролей не
+    вошли бы вовсе — ни включить код, ни ввести его. Узнать это лучше при выкатке, чем от
+    админа, которого не пустило. Имена ролей сверяет старт API (`access/second_step.py`):
+    конфиг ролей не знает."""
+    if access.TOTP_REQUIRED_ROLES and not access.TOTP_KEY:
+        roles = ", ".join(sorted(access.TOTP_REQUIRED_ROLES))
+        raise ConfigError(
+            f"AUTH_TOTP_REQUIRED_ROLES задан ({roles}), а ключа AUTH_TOTP_KEY нет: секрет кода "
+            "нечем зашифровать, и учётки этих ролей не вошли бы вовсе.\n"
+            f"  Ключ — {TOTP_KEY_HOWTO}; или очистить AUTH_TOTP_REQUIRED_ROLES"
+        )
+    problem = totp_key_problem(access.TOTP_KEY)
+    if problem is not None:
+        raise ConfigError(f"AUTH_TOTP_KEY {problem}.\n  Ключ — {TOTP_KEY_HOWTO}")
 
 
 def say_inbound_secret() -> None:

@@ -22,6 +22,12 @@
 миграции для этого не нужно: хеш пароля меняется при каждой смене — соль
 bcrypt новая даже для того же пароля.
 
+**Включение и сброс входа с кодом закрывают выданные пропуска так же** (23.11.2026,
+`access/second_step.py`): отпечаток несёт ещё и поколение пропусков учётки
+(`users.token_generation`), а включение и сброс кода прибавляют его. При нуле отпечаток прежний —
+выкатка никого не выбрасывает. Поколение только растёт: выключенный код не оживляет пропуска,
+погашенные его включением.
+
 **Пропуск без любого из своих полей не принимается** (аудит 19.11.2026,
 `REQUIRED_CLAIMS`): ни без срока, ни без отпечатка пароля. Без срока библиотека
 сочла бы пропуск бессрочным, без отпечатка — годным при любом пароле; пропуска
@@ -137,23 +143,39 @@ def _secret() -> str:
     return secret
 
 
-def password_stamp(password_hash: str | None) -> str:
-    """Отпечаток пароля учётки для пропуска.
+def signing_secret() -> str:
+    """Секрет подписи пропусков — или отказ словами, если его нет или он короток. От него
+    производится ключ вызовов второго шага (`access/challenge.py`): свой ключ без новой
+    переменной."""
+    return _secret()
+
+
+def password_stamp(password_hash: str | None, generation: int = 0) -> str:
+    """Отпечаток пароля учётки для пропуска — и поколения её пропусков, если оно не ноль.
 
     HMAC на секрете подписи, а не сам хеш и не его простой отпечаток: пропуск читает любой,
     у кого он есть (подпись его не прячет), а этот отпечаток без секрета не посчитать, и
-    о хеше он ничего не говорит.
+    о хеше он ничего не говорит. Поколение (`users.token_generation`) дописывается, только
+    когда оно больше нуля: у учёток, где код не включали, отпечаток тот же, что до 23.11.2026.
     """
-    signed = hmac.new(
-        _secret().encode("utf-8"), f"password:{password_hash or ''}".encode(), hashlib.sha256
-    )
+    material = f"password:{password_hash or ''}"
+    if generation:
+        material += f"|generation:{generation}"
+    signed = hmac.new(_secret().encode("utf-8"), material.encode(), hashlib.sha256)
     return signed.hexdigest()[:STAMP_LENGTH]
 
 
-def create_token(user_id: int, *, password_hash: str | None, now: datetime | None = None) -> str:
-    """Выдать пропуск сотруднику. `password_hash` — нынешний хеш пароля учётки: его
-    отпечаток едет в пропуске, и смена пароля этот пропуск закрывает. Номер пропуска —
-    случайный, свой у каждого: по нему закрывается этот пропуск, а не все пропуска учётки."""
+def create_token(
+    user_id: int,
+    *,
+    password_hash: str | None,
+    generation: int = 0,
+    now: datetime | None = None,
+) -> str:
+    """Выдать пропуск сотруднику. `password_hash` — нынешний хеш пароля учётки, `generation` —
+    нынешнее поколение её пропусков: их отпечаток едет в пропуске, и смена пароля, включение
+    или сброс кода этот пропуск закрывают. Номер пропуска — случайный, свой у каждого: по нему
+    закрывается этот пропуск, а не все пропуска учётки."""
     moment = now or datetime.now(UTC)
     expires = moment + timedelta(hours=cfg.TOKEN_TTL_HOURS)
     return jwt.encode(
@@ -161,7 +183,7 @@ def create_token(user_id: int, *, password_hash: str | None, now: datetime | Non
             "sub": str(user_id),
             "iat": int(moment.timestamp()),
             "exp": int(expires.timestamp()),
-            STAMP_CLAIM: password_stamp(password_hash),
+            STAMP_CLAIM: password_stamp(password_hash, generation),
             TOKEN_ID_CLAIM: secrets.token_urlsafe(TOKEN_ID_BYTES),
         },
         _secret(),
@@ -207,11 +229,16 @@ def _token_id(raw: object) -> str | None:
     raise TokenError(REFUSED)
 
 
-def password_changed_since(payload: TokenPayload, password_hash: str | None) -> bool:
-    """Сменили ли пароль учётки после выдачи пропуска — тогда пропуск не действует.
+def password_changed_since(
+    payload: TokenPayload, password_hash: str | None, generation: int = 0
+) -> bool:
+    """Сменили ли пароль учётки после выдачи пропуска, включили или сбросили ли вход с кодом
+    (поколение пропусков выросло) — тогда пропуск не действует.
 
     До 19.11.2026 пропуск без отпечатка здесь считался годным: так пропуска, выданные до
     отпечатков, доживали свои сутки, а не обрывались выкаткой 10.10.2026. Их давно нет, и
     без отпечатка пропуск теперь не читается вовсе (`read_token`, `REQUIRED_CLAIMS`).
     """
-    return not hmac.compare_digest(payload.password_stamp, password_stamp(password_hash))
+    return not hmac.compare_digest(
+        payload.password_stamp, password_stamp(password_hash, generation)
+    )
