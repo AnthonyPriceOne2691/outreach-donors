@@ -136,6 +136,63 @@ def test_each_rule_of_the_table(
     assert lane_of(known, scope=scope, policy=policy) == (lane, rule)
 
 
+#: Разбор принятых 23.11: бизнес из другой страны, у которого страна сегмента — одна из многих, шёл в
+#: «принят» правилом рынка, если у сайта была строка (страница выдачи под страну) с одной этой страной,
+#: а такой же бизнес без этой строки — к человеку правилом чужой географии.
+@pytest.mark.parametrize(
+    ("known", "scope", "policy", "lane", "rule"),
+    [
+        # «По всему миру» и строка под страну сегмента — одна из многих: решает поле.
+        (facts(home="DE", served=[["*"], ["GR"]]), GREECE, REVIEW, Lane.REVIEW, "foreign_review"),
+        (facts(home="DE", served=[["*"], ["GR"]]), GREECE, ACCEPT, Lane.ACCEPT, "foreign_accept"),
+        (facts(home="KR", served=[["*"], ["JP"]]), JAPAN, REVIEW, Lane.REVIEW, "foreign_review"),
+        # Больше трёх стран кроме своей — тоже одна из многих.
+        (
+            facts(home="TR", served=[["TR", "BG", "RO", "GE", "AZ"], ["GR"]]),
+            GREECE, REVIEW, Lane.REVIEW, "foreign_review",
+        ),
+        # Три страны кроме своей — ещё рынок: порог тот же, что у строки рынка (`MARKET_MAX`).
+        (facts(home="TR", served=[["TR", "BG", "RO"], ["GR"]]), GREECE, REVIEW, Lane.ACCEPT, "segment_market"),
+        # Коридор своей страны и страны сегмента (и соседней) — рынок, как раньше.
+        (facts(home="CY", served=[["CY", "GR"]]), GREECE, REVIEW, Lane.ACCEPT, "segment_market"),
+        (facts(home="BG", served=[["BG", "RO", "GR"], ["GR"]]), GREECE, REVIEW, Lane.ACCEPT, "segment_market"),
+        # Страна бизнеса не видна — правило молчит; своя страна в сегменте — «по всему миру» не мешает.
+        (facts(served=[["*"], ["GR"]]), GREECE, REVIEW, Lane.ACCEPT, "segment_market"),
+        (facts(home="GR", served=[["*"]]), GREECE, REVIEW, Lane.ACCEPT, "segment_market"),
+    ],
+    ids=[
+        "world-review", "world-accept", "world-other-scope", "many-countries", "three-countries",
+        "corridor", "corridor-and-neighbour", "home-not-seen", "home-in-segment",
+    ],
+)  # fmt: skip
+def test_a_foreign_business_for_which_the_segment_is_one_of_many_goes_by_the_field(
+    known: SiteFacts, scope: Scope, policy: CountryPolicy, lane: Lane, rule: str
+) -> None:
+    assert lane_of(known, scope=scope, policy=policy) == (lane, rule)
+
+
+def test_one_of_many_takes_the_business_country_from_the_zone_too() -> None:
+    """Текст страну бизнеса не назвал — она по доменной зоне, как у остальных правил страны."""
+    known = facts(served=[["*"], ["GR"]])
+
+    assert lane_of(known, host="forwarder-sample.de") == (Lane.REVIEW, "foreign_review")
+    assert lane_of(known, host="forwarder-sample.com") == (Lane.ACCEPT, "segment_market")
+
+
+def test_one_of_many_is_named_in_words_as_the_segment_among_many() -> None:
+    verdict = sj.settle(
+        host="forwarder-sample.com",
+        policy=REVIEW,
+        scope=GREECE,
+        said=sj.Said(facts(home="DE", served=[["*"], ["GR"]]), "сбой"),
+    )
+
+    assert verdict.reason.startswith(
+        "страна бизнеса — Германия (по тексту сайта); страна сегмента — лишь одна из многих, где он "
+        "работает: по настройке гипотезы решает человек"
+    )
+
+
 def test_the_segment_country_among_many_counts_only_when_the_business_country_is_not_seen() -> None:
     """«По всей Европе» модель раскрывает в страны, и страна сегмента попадает туда сама: бизнес из
     другой страны «для клиентов по всей Европе» — чужая география, а не сегмент."""
@@ -379,14 +436,20 @@ def test_shadow_keeps_a_refusal_of_the_table_in_its_own_lane() -> None:
 
 # --- синтетика под v4: поле гипотезы в разных нишах и письменностях --------------------------------
 
+SAMPLE_HOST = r"[a-z0-9-]+-sample(\.[a-z]{2,})+"
+
+
+def _synthetic() -> list[dict[str, Any]]:
+    """Случаи синтетического набора судьи — ворот живого замера."""
+    path = Path(__file__).resolve().parents[1] / "scripts/data/sales_segment_synthetic.jsonl"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
 
 def test_the_synthetic_set_holds_the_field_in_many_niches_and_scripts() -> None:
     """Слово владельца: правки универсальные — поле гипотезы в синтетике держат разные ниши и
     письменности: оба положения переключателя, «не пишем» не меньше чем в четырёх нишах, местный
     бизнес в другой стране, бизнес через границу без страны в тексте, страна бизнеса только по зоне."""
-    path = Path(__file__).resolve().parents[1] / "scripts/data/sales_segment_synthetic.jsonl"
-    cases = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
-    field = [case for case in cases if "v4-field" in case["tags"]]
+    field = [case for case in _synthetic() if "v4-field" in case["tags"]]
     accept = {c["hypothesis"] for c in field if c.get("foreign_countries") == "fit"}
     review = {c["hypothesis"] for c in field if c.get("foreign_countries") is None}
     excluded = {c["hypothesis"] for c in field if c.get("not_write")}
@@ -399,4 +462,24 @@ def test_the_synthetic_set_holds_the_field_in_many_niches_and_scripts() -> None:
     scripts = {"cyrillic", "georgian", "latin", "rtl", "armenian"} & tags
     assert len(scripts) >= 3
     for case in field:
-        assert re.fullmatch(r"[a-z0-9-]+-sample(\.[a-z]{2,})+", case["host"]), case["id"]
+        assert re.fullmatch(SAMPLE_HOST, case["host"]), case["id"]
+
+
+def test_the_synthetic_set_holds_one_of_many_in_many_niches_and_scripts() -> None:
+    """Правило «страна сегмента — одна из многих» в синтетике держат разные ниши и письменности:
+    в каждой нише — пара на оба положения поля гипотезы (на проверку — «не понять», подходят —
+    «да»), и контроль — бизнес на одном маршруте в страну сегмента, который остаётся её рынком."""
+    many = [case for case in _synthetic() if "one-of-many" in case["tags"]]
+    fit = [case for case in many if case.get("foreign_countries") == "fit"]
+    asked = [case for case in many if "field-review" in case["tags"]]
+    tags = {tag for case in many for tag in case["tags"]}
+
+    assert {case["hypothesis"] for case in fit} == {case["hypothesis"] for case in asked}
+    assert len({case["hypothesis"] for case in fit}) >= 3
+    assert {case["expect"] for case in fit} == {"yes"}
+    assert {case["expect"] for case in asked} == {"unsure"}
+    assert "corridor" in tags
+    assert len({"cyrillic", "latin", "rtl", "unspaced"} & tags) >= 3
+    for case in many:
+        assert re.fullmatch(SAMPLE_HOST, case["host"]), case["id"]
+        assert case["evidence"] in case["text"], case["id"]
