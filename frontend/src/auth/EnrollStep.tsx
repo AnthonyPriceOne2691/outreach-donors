@@ -5,6 +5,11 @@
  * кода сервер не выдаст, и вход продолжается здесь, по вызову из ответа на пароль. Включение
  * начинается кнопкой, а не само: начатое включение кладёт на сервер новый ключ, и повтор
  * запроса при перерисовке подменил бы ключ, который человек уже переписывает.
+ *
+ * **Пропуск принимает вход, а не шаг** — как у кода из приложения (`CodeStep`): шаг сеанса не
+ * трогает. Код включён — пропуск из ответа уходит наверх сразу (`onSignedIn`), ещё до экрана кодов
+ * восстановления: прежние пропуска сервер погасил, и фоновый запрос со старым выбросил бы на вход.
+ * Войти — когда коды сохранены (`onDone`).
  */
 
 import { Alert, Anchor, Button, Stack, Text, Title } from '@mantine/core';
@@ -12,20 +17,21 @@ import { useState } from 'react';
 
 import { confirmEnrollment, startEnrollment } from '../api/auth';
 import { refusalOf } from '../api/client';
-import type { Me, TotpSetup } from '../api/types';
+import type { Me, SignedIn, TotpSetup } from '../api/types';
 import { SERVICE_NAME } from '../brand';
 import { FIELD_GAP } from '../components/formRhythm';
-import { useSession } from './AuthProvider';
 import { TotpEnrollment } from './TotpEnrollment';
 
 interface Props {
   challenge: string;
+  /** Код включён — пропуск от сервера: принять сразу, до экрана кодов восстановления. */
+  onSignedIn: (opened: SignedIn) => void;
+  /** Коды восстановления сохранены — войти. */
   onDone: (user: Me) => void;
   onRestart: () => void;
 }
 
-export function EnrollStep({ challenge, onDone, onRestart }: Props) {
-  const { accept } = useSession();
+export function EnrollStep({ challenge, onSignedIn, onDone, onRestart }: Props) {
   const [setup, setSetup] = useState<TotpSetup | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -80,9 +86,7 @@ export function EnrollStep({ challenge, onDone, onRestart }: Props) {
         <TotpEnrollment
           setup={setup}
           confirm={(code) => confirmEnrollment(challenge, code)}
-          onEnabled={(enabled) => {
-            accept(enabled);
-          }}
+          onEnabled={onSignedIn}
           onDone={(enabled) => onDone(enabled.user)}
         />
       )}

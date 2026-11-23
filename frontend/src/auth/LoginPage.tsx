@@ -61,7 +61,9 @@ interface NextStepProps {
   onRestart: () => void;
 }
 
-/** Второй шаг после верного пароля: код — или включение кода, если роль его требует. */
+/** Второй шаг после верного пароля: код — или включение кода, если роль его требует. Пропуск
+ *  шага принимает вход (`accept`), у обоих шагов одинаково; входит после кода — сразу, после
+ *  включения — когда коды восстановления сохранены. */
 function NextStep({ pending, accept, enter, onRestart }: NextStepProps) {
   if (pending.step === 'code') {
     return (
@@ -72,7 +74,14 @@ function NextStep({ pending, accept, enter, onRestart }: NextStepProps) {
       />
     );
   }
-  return <EnrollStep challenge={pending.challenge} onDone={enter} onRestart={onRestart} />;
+  return (
+    <EnrollStep
+      challenge={pending.challenge}
+      onSignedIn={accept}
+      onDone={enter}
+      onRestart={onRestart}
+    />
+  );
 }
 
 /** Включение кода шире входа: ключ, ссылка и коды восстановления в 400 px теснятся. */
