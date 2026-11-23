@@ -45,6 +45,7 @@ from backend.features.ops import (
     hunter_watch,
     key_watch,
     mail_watch,
+    model_watch,
     stage_silence,
 )
 from backend.features.ops.alarms import Alarm, Concern, cause
@@ -370,10 +371,11 @@ async def with_providers(
     probe: Callable[[], Awaitable[Alarm | None]] | None = None,
     journal: Journal | None = None,
 ) -> list[Alarm]:
-    """Сетевая часть прохода сторожа для фонового процесса: опрос провайдеров и строки
-    журнала. Без сессии намеренно: зовётся после того, как тревоги базы посчитаны и сессия
-    закрыта (`workers/reaper.watch`), — иначе соединение висело бы «idle in transaction» на
-    время чужих ответов.
+    """Сетевая часть прохода сторожа для фонового процесса: опрос провайдеров, след модели в
+    Redis (`model_watch`: нет денег, отказывает подряд — 23.11.2026) и строки журнала. Без сессии
+    намеренно: зовётся после того, как тревоги базы посчитаны и сессия закрыта
+    (`workers/reaper.watch`), — иначе соединение висело бы «idle in transaction» на время чужих
+    ответов.
 
     Провайдеры проверяются здесь — в фоне это уместно: два бесплатных запроса ничего не
     стоят. `probe` — опрос; по умолчанию — `probe_providers` сейчас, фоновый проход
@@ -382,6 +384,7 @@ async def with_providers(
     чаще прежнего (`workers/reaper.JOURNAL`).
     """
     unreachable = await (probe or probe_providers)()
-    told = list(found) if unreachable is None else [unreachable, *found]
+    model = await model_watch.alarms()
+    told = [*model, *found] if unreachable is None else [unreachable, *model, *found]
     (journal or Journal()).write(told)
     return told

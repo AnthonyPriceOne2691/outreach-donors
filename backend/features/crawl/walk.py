@@ -20,9 +20,8 @@
 паузой и половины потолка страниц; вышел — продлевается по темпу обхода. Где брать
 адреса — карта, лента, ссылки главной — решает `sources.py`.
 
-**Сырой HTML не хранится** — это прямое требование. Страница живёт ровно столько,
-сколько нужно, чтобы снять с неё ссылки; сами ссылки — следующий срез.
-Здесь наружу уходят только адреса и числа.
+**Сырой HTML не хранится** — это прямое требование. Страница живёт ровно столько, сколько нужно,
+чтобы снять с неё ссылки; сами ссылки — следующий срез. Здесь наружу уходят только адреса и числа.
 """
 
 from __future__ import annotations
@@ -50,6 +49,7 @@ from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.robots import RobotsRules
 from backend.features.crawl.sitemap import SitemapScan
 from backend.features.crawl.sources import read_sources, readers, start_frontier
+from backend.shared.net.url_guard import NOT_OPENED
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +227,7 @@ class DonorCrawler:
                         follow_redirects=True,
                         timeout=cfg.ROBOTS_TIMEOUT_SEC,
                     )
-                except httpx.HTTPError as exc:
+                except NOT_OPENED as exc:
                     logger.info("robots: %s не открылся (%r)", url, exc)
                     continue
                 # Ответ — любой: время ответа сайта идёт в срок донора (`pace.py`).

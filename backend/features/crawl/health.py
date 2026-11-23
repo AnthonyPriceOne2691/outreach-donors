@@ -16,6 +16,10 @@
 **Малое число запросов долей не меряется.** Три отказа из трёх в начале
 прогона — это не сто процентов нездоровья, это три отказа. Без нижней
 границы обход останавливался бы на первом же сайте, начавшем с ошибки.
+
+**Пропущенный адрес — не запрос** (`SKIPPED`, 23.11.2026). Адрес, который не разбирает
+клиент или не пускает защита исходящих, о здоровье сайта не говорит ничего: в окно он
+не идёт и в число запросов тоже, а в отчёте — своим числом (`skipped`).
 """
 
 from __future__ import annotations
@@ -57,12 +61,13 @@ class CrawlHealth:
 
     def record(self, outcome: FetchOutcome) -> None:
         self.totals[outcome] += 1
-        self._window.append(outcome in FAILURES)
+        if outcome is not FetchOutcome.SKIPPED:
+            self._window.append(outcome in FAILURES)
 
     @property
     def requests(self) -> int:
-        """Сколько запросов сделано всего — по счётчикам, не по окну."""
-        return sum(self.totals.values())
+        """Сколько запросов сделано всего — по счётчикам, не по окну; пропущенные — не запросы."""
+        return sum(n for outcome, n in self.totals.items() if outcome is not FetchOutcome.SKIPPED)
 
     @property
     def failure_share(self) -> float:
@@ -100,6 +105,7 @@ class CrawlHealth:
             "missing": self.totals[FetchOutcome.MISSING],
             "blocked": self.totals[FetchOutcome.BLOCKED],
             "errors": self.totals[FetchOutcome.ERROR],
+            "skipped": self.totals[FetchOutcome.SKIPPED],
             "blocked_share": round(self.blocked_share, 4),
             "failure_share": round(self.failure_share, 4),
         }

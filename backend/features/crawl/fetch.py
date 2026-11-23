@@ -45,6 +45,7 @@ from backend.features.contacts.pages import HEADERS
 from backend.features.crawl.proxies import ProxyPool, ProxyUnusableError
 from backend.features.crawl.render import RenderService, looks_empty
 from backend.features.crawl.spend import PROXY_OPERATION, RENDER_OPERATION, CrawlSpending
+from backend.shared.net.url_guard import UnsafeUrlError
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +98,18 @@ class FetchOutcome(StrEnum):
     сайта (страница удалена), второе — повод к следующему уровню
     каскада и к тревоге по здоровью обхода. Сложив их в «не открылось»,
     мы купили бы прокси там, где просто битая ссылка.
+
+    `SKIPPED` — адрес, который мы не открываем сами: клиент его не разбирает
+    или защита исходящих не пускает (`url_guard`). О сайте это не говорит
+    ничего, и выше по каскаду такой адрес не идёт: браузер его не откроет
+    тоже, а внутреннее имя прокси открыл бы в своей сети мимо защиты — и за деньги.
     """
 
     OK = "ok"
     MISSING = "missing"  # 404 и подобное: страницы нет
     BLOCKED = "blocked"  # 401/403/429 или заставка антибота
     ERROR = "error"  # таймаут, обрыв, 5xx
+    SKIPPED = "skipped"  # адрес не открываем: не разбирается или ведёт во внутреннюю сеть
 
 
 class CascadeLevel(StrEnum):
@@ -208,6 +215,7 @@ class PageCascade:
         self._limit = max_page_bytes if max_page_bytes is not None else cfg.MAX_PAGE_BYTES
         self.degradation = Degradation()
         self.by_level: dict[CascadeLevel, int] = dict.fromkeys(CascadeLevel, 0)
+        self.skipped = 0  # адресов, которые не открывали (`FetchOutcome.SKIPPED`)
 
     @property
     def headers(self) -> dict[str, str]:
@@ -220,7 +228,7 @@ class PageCascade:
         result = await self._http(url)
         if result.outcome is FetchOutcome.OK:
             return self._counted(await self._filled(result))
-        if result.outcome is FetchOutcome.MISSING:
+        if result.outcome in (FetchOutcome.MISSING, FetchOutcome.SKIPPED):
             return self._counted(result)
 
         rendered = await self._browser(url)
@@ -258,7 +266,27 @@ class PageCascade:
                 level=CascadeLevel.HTTP,
                 reason=f"{type(exc).__name__}: {exc}",
             )
+        except (httpx.InvalidURL, UnsafeUrlError) as exc:
+            # Ни то ни другое не `httpx.HTTPError`: до 23.11.2026 они пролетали мимо, и один
+            # адрес с невидимым знаком или со ступенью редиректа во внутреннюю сеть ронял
+            # задачу обхода. Строкой — первый такой у каскада, дальше счётом (`skipped`):
+            # у сайта их бывают сотни, и все с одной причиной.
+            result = self._skipped(url, exc)
+            if self.skipped == 1:
+                logger.info("обход: %r пропущен — %s", url, result.reason)
+            else:
+                logger.debug("обход: %r пропущен — %s", url, result.reason)
+            return result
         return self._from_response(response, CascadeLevel.HTTP)
+
+    def _skipped(self, url: str, exc: httpx.InvalidURL | UnsafeUrlError) -> FetchResult:
+        """Пропуск одной страницы с причиной словами — а не сбой обхода."""
+        self.skipped += 1
+        guarded = isinstance(exc, UnsafeUrlError)
+        said = "адрес не прошёл защиту исходящих" if guarded else "адрес не разбирается"
+        return FetchResult(
+            url=url, outcome=FetchOutcome.SKIPPED, level=CascadeLevel.HTTP, reason=f"{said}: {exc}"
+        )
 
     def _from_response(self, response: httpx.Response, level: CascadeLevel) -> FetchResult:
         html = response.text[: self._limit] if response.status_code < 400 else None
