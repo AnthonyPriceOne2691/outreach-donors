@@ -301,6 +301,28 @@ async def test_a_decision_that_meets_the_target_keeps_need_keys_in_words_of_resu
     assert (turn, row.stage) == (Turn(Did.MOVED, plan_tick.TARGET_MET), "sending")
 
 
+async def test_resume_at_the_met_target_leaves_no_cap_words_in_letters(
+    session: AsyncSession,
+) -> None:
+    """Ревью 20.11: гипотеза встала на потолке, потом — «нужны ключи»; «Принять» набрало цель.
+    «Продолжить» снимает «нужны ключи», а «кончился бюджет» оставался — и в «Письмах» висели старые
+    слова потолка. Переход в письма снимает проблемы сбора (`plan_tick.MOOT_AT_TARGET`)."""
+    budget = problem(
+        Problem.BUDGET,
+        cap_words(Outcome.HYPOTHESIS_CAP, Decimal("5.00"), Spent(Decimal("4.90")), Decimal("0.30")),
+        LOOKED - timedelta(hours=1),
+    )
+    row, review, _ = await _stopped_for_keys(session, 2, [budget])
+    await segment_report.decide(session, review.id, accept=True, author=SELLER)
+    await plan_actions.resume_hypothesis(session, row.id, author_id=None, now=LATER)
+    assert [item["code"] for item in row.problems] == ["budget"]
+    await session.commit()
+
+    turn = await plan_tick.step(session, _Jobs(), now=LATER)
+
+    assert (turn, row.stage, row.problems) == (Turn(Did.MOVED, plan_tick.TARGET_MET), "sending", [])
+
+
 async def test_a_cap_raised_after_the_target_was_met_does_not_wake_a_sheet_that_stood_on_keys(
     session: AsyncSession,
 ) -> None:
