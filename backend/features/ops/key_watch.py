@@ -25,6 +25,8 @@
 в Telegram, подробности — по «Подробнее»: «что сделать» в них — только у предупреждения, чья
 пометка его не говорит. Упор с лимитом, равным капу, назван словом (`named_binding`): его
 числа — те же «осталось N из M».
+Куда идти — `raise_where`: наш кап без своего «не больше N» ниже ключа и есть размер ключа,
+на «Расходе» выше него не поднять — сдвигают лимит в самом Ahrefs (24.11.2026).
 
 **Снимок ключа из опроса сторожа** (`heard`, `keep_heard`). Провайдеров сторож спрашивает
 без сессии (`silence.with_providers`): соединение не должно ждать чужих ответов. Ответ
@@ -155,6 +157,22 @@ HOW_TO_RAISE = {
 }
 
 
+def raise_where(cap: KeyCap) -> str:
+    """Что сдвигать, чтобы упор отступил, — ключ `HOW_TO_RAISE`. Наш кап — только заданный на
+    «Расходе» ниже ключа. Без своего «не больше N» кап и есть размер ключа, а выше ключа его не
+    поднять: сдвигают лимит в самом Ahrefs — ключа, а нет у ключа своего — пространства.
+    До 24.11.2026 тревога 80 % при «весь лимит ключа» советовала «Расход», где поднимать нечего:
+    поровну с ключом (`KeyCap.binding`) упором назван наш кап, и по нашему журналу он кончается
+    чуть раньше, чем по счётчику Ahrefs."""
+    binding = cap.binding or "cap"
+    if binding != "cap" or cap.key is None:
+        return binding
+    size = cap.size
+    if cap.chosen is not None and size is not None and cap.chosen < size:
+        return binding
+    return "key" if cap.key.quota.key_limit is not None else "workspace"
+
+
 async def alarm(session: AsyncSession, moment: datetime) -> Alarm | None:
     """Тревога о капе Ahrefs — самого высокого уровня, или `None`: выбрано меньше
     `WARN_PERCENT` или размер ключа неизвестен (о неответе Ahrefs говорит своя тревога —
@@ -163,7 +181,7 @@ async def alarm(session: AsyncSession, moment: datetime) -> Alarm | None:
     percent, units_cap = cap.used_percent, cap.units_cap
     if percent is None or units_cap is None or percent < WARN_PERCENT:
         return None
-    binding = cap.binding or "cap"
+    binding = raise_where(cap)
     if percent >= 100:
         return Alarm(
             code=REACHED_CODE,

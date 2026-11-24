@@ -103,6 +103,21 @@ async def test_our_own_cap_is_named_with_where_to_raise_it(session: AsyncSession
     assert "на экране «Расход»" in stop.detail
 
 
+async def test_whole_key_cap_spent_by_our_count_is_raised_in_ahrefs(session: AsyncSession) -> None:
+    """«Весь лимит ключа»: по нашему журналу кап кончился раньше, чем по счётчику Ahrefs, и упор
+    назван нашим капом, — а поднимают его только вместе с ключом, в Ahrefs (24.11.2026)."""
+    await known_key(session, key_used=KEY - 500, reset_at=RESET)
+    usage.record(session, operation="batch_metrics", units=KEY - 12, stage=Stage.ADVERTISERS)
+    await session.flush()
+
+    stop = await units_stop(session)
+
+    assert stop is not None
+    assert "в наш кап" in stop.detail
+    assert "поднять лимит ключа — в Ahrefs" in stop.detail
+    assert "на экране «Расход»" not in stop.detail
+
+
 async def test_units_promised_to_a_running_run_are_not_free(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
