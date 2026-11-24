@@ -167,6 +167,8 @@ describe('вход: роль требует код — включение', () =
 
     expect(await screen.findByText('k3m9-x2qa-77ab-cd00')).toBeVisible();
     expect(screen.getAllByText(/^k3m9-/)).toHaveLength(10);
+    // Код — одной строкой: по дефисам он рвался на две, и его переписывали с ошибкой (24.11.2026).
+    expect(screen.getByText('k3m9-x2qa-77ab-cd00')).toHaveStyle({ whiteSpace: 'nowrap' });
     expect(screen.getByRole('button', { name: 'Скачать .txt' })).toBeVisible();
     // Пропуск взят сразу: прежние сервер погасил, а коды человек ещё читает. Входа — ещё нет.
     expect(localStorage.getItem(TOKEN_KEY)).toBe(signedIn(ADMIN).token);
