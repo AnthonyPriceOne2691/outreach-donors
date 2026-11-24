@@ -2,17 +2,74 @@
   "name": "sales_reply_golden",
   "about": "Обезличенные ответы лидов продаж с видом ответа по каждому. Сам набор вне репозитория (он публичный): каталог из SALES_GOLDEN_DIR, файл ниже.",
   "file": "sales_reply_golden.jsonl",
-  "format": "JSONL, строка на ответ: id, subject, text, expect.kind (вид из SalesKind), expect.contact (адрес для referral)",
-  "count": null,
-  "sha256": null,
-  "date": null,
-  "baseline": null,
+  "format": "JSONL, строка на ответ: id, subject, text, expect.kind (вид из SalesKind), expect.contact (адрес для referral), expect.phones (номера для связи из письма, если есть)",
+  "count": 106,
+  "sha256": "7e03418dab5c8a0d8b7b2abc4e30b818d20e62a86195c090c37e3dd3d75d62d2",
+  "date": "2026-11-24",
+  "baseline": {
+    "prompt_version": "sales-reply-kind-v3",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "low",
+    "threshold": 0.8,
+    "cases": 106,
+    "correct": 105,
+    "to_human": 9,
+    "recall": {
+      "wants_to_talk": 1.0,
+      "question": 1.0,
+      "interested": 0.9667,
+      "not_interested": 1.0,
+      "not_now": 1.0,
+      "unsubscribe": 1.0
+    },
+    "dangerous": 0,
+    "false_unsubscribe": 0,
+    "tokens": 131791,
+    "synthetic": "73 из 73",
+    "by_model": {
+      "gpt-5": {
+        "reasoning_effort": "minimal",
+        "correct": 93,
+        "to_human": 36,
+        "recall": {
+          "wants_to_talk": 1.0,
+          "question": 0.9583,
+          "interested": 0.7333,
+          "not_interested": 0.9333,
+          "not_now": 0.7273,
+          "unsubscribe": 1.0
+        },
+        "dangerous": 0,
+        "false_unsubscribe": 0,
+        "tokens": 131493,
+        "synthetic": "72 из 73"
+      },
+      "gpt-6.1-terra": {
+        "reasoning_effort": "low",
+        "correct": 102,
+        "to_human": 14,
+        "recall": {
+          "wants_to_talk": 0.96,
+          "question": 0.9583,
+          "interested": 1.0,
+          "not_interested": 0.9333,
+          "not_now": 0.9091,
+          "unsubscribe": 1.0
+        },
+        "dangerous": 0,
+        "false_unsubscribe": 0,
+        "tokens": 133103,
+        "synthetic": "72 из 73"
+      }
+    },
+    "source": "живой eval 24.11 на всех 106 ответах, порог уверенности 0,8; модель — решение владельца 24.11: gpt-5 снимают 11.12.2026, её замена gpt-6.1-sol. У gpt-5 треть ответов уходила человеку, «интерес» и «не сейчас» она путала с отказом и вопросом; у sol одна ошибка — «интерес» назван «не сейчас», ответ уходит человеку"
+  },
   "gates": {
     "wants_to_talk_recall": 0.95,
     "unsubscribe_recall": 1.0,
     "dangerous": 0,
     "false_unsubscribe": 0
   },
-  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе",
+  "gates_status": "предложение; замер 24.11 — проходят все три модели (полнота «хочет созвон» 0,96–1,0, отписка 1 из 1, опасных и ложных отписок 0); пороги утверждает владелец",
   "fill_in": "count, sha256 и date печатает eval_sales_reply.py --golden; baseline — его итог на утверждённой версии промпта"
 }
