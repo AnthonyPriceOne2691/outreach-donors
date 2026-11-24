@@ -1632,9 +1632,9 @@
       "worst": "eta_sec:171"
     },
     "backend/features/crawl/big_sites.py": {
-      "lines": 185,
+      "lines": 261,
       "complexity": 7,
-      "worst": "apply_ratings:156"
+      "worst": "apply_ratings:232"
     },
     "backend/features/crawl/board.py": {
       "lines": 319,
@@ -1687,9 +1687,9 @@
       "worst": "crawlable:52"
     },
     "backend/features/crawl/gate.py": {
-      "lines": 417,
-      "complexity": 7,
-      "worst": "_rate:208"
+      "lines": 435,
+      "complexity": 6,
+      "worst": "_rate:209"
     },
     "backend/features/crawl/gate_union.py": {
       "lines": 184,
@@ -2627,9 +2627,9 @@
       "worst": "_outcome:209"
     },
     "backend/features/ops/key_watch.py": {
-      "lines": 204,
-      "complexity": 11,
-      "worst": "alarm:158"
+      "lines": 222,
+      "complexity": 10,
+      "worst": "binding_words:106"
     },
     "backend/features/ops/limit_ahrefs.py": {
       "lines": 113,
