@@ -145,6 +145,7 @@ async def accepted(session: AsyncSession, incoming: Incoming) -> tuple[Accepted,
 def assert_bound(got: Accepted, reply: ReplyModel, to: MessageModel) -> None:
     assert (got.bound, got.way, got.unbound) == (True, BindingWay.SENDER, None)
     assert (reply.message_id, reply.thread_id, reply.unbound_reason) == (to.id, to.thread_id, None)
+    assert reply.bound_by == BindingWay.SENDER
 
 
 def assert_left_to_a_human(
@@ -152,6 +153,7 @@ def assert_left_to_a_human(
 ) -> None:
     assert (got.bound, got.way, got.unbound) == (False, BindingWay.NONE, why)
     assert (reply.message_id, reply.thread_id, reply.unbound_reason) == (None, None, why)
+    assert reply.bound_by == BindingWay.NONE
 
 
 class TestOneAddressee:
@@ -420,7 +422,11 @@ class TestOtherWaysAsBefore:
 
         got, reply = await accepted(session, fresh(to=address))
 
-        assert (got.way, reply.message_id) == (BindingWay.LABEL, labelled.id)
+        assert (got.way, reply.message_id, reply.bound_by) == (
+            BindingWay.LABEL,
+            labelled.id,
+            "label",
+        )
 
     async def test_thread_headers_win_over_the_sender(self, session: AsyncSession) -> None:
         within = await campaign(session)
@@ -434,7 +440,11 @@ class TestOtherWaysAsBefore:
 
         got, reply = await accepted(session, fresh(in_reply_to="<ours-1@mail-donors.example.test>"))
 
-        assert (got.way, reply.message_id) == (BindingWay.HEADERS, threaded.id)
+        assert (got.way, reply.message_id, reply.bound_by) == (
+            BindingWay.HEADERS,
+            threaded.id,
+            "headers",
+        )
 
     @pytest.mark.parametrize(
         ("why", "extra"),

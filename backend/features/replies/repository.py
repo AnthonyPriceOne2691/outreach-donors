@@ -37,7 +37,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.replies import outcome, robots, stage_rules
-from backend.features.replies.binding import Unbound
+from backend.features.replies.binding import Binding
 from backend.features.replies.donor_card import DonorCardWrites
 from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import Incoming, addresses_in, masked_for_log
@@ -380,7 +380,7 @@ class ReplyRepository(DonorCardWrites):
         thread_id: int | None,
         message_id: int | None,
         found: Extracted | None,
-        unbound: Unbound | None = None,
+        bound: Binding,
     ) -> ReplyModel:
         """Записать ответ вместе с исходным текстом.
 
@@ -390,7 +390,8 @@ class ReplyRepository(DonorCardWrites):
 
         Адреса, на которые письмо пришло, пишутся у каждого ответа, а не только
         у непривязанного: по ним видно, на какой домен ответов и с какой меткой
-        он пришёл, — это и есть ответ на вопрос «почему не привязался».
+        он пришёл, — это и есть ответ на вопрос «почему не привязался». Привязка —
+        тоже одним значением: способ и причина ложатся рядом (`bound_by`, 24.11.2026).
         """
         reply = ReplyModel(
             thread_id=thread_id,
@@ -402,7 +403,8 @@ class ReplyRepository(DonorCardWrites):
             from_name=incoming.from_name[:255] or None,
             subject=incoming.subject[:512],
             to_addresses=_kept_addresses(incoming),
-            unbound_reason=unbound,
+            unbound_reason=bound.unbound,
+            bound_by=bound.way,
             **_parsed(found),
         )
         self._session.add(reply)
