@@ -20,6 +20,10 @@ class Taken(BaseModel):
     kind: str | None = None
     #: Удалось ли соотнести с нашим письмом.
     bound: bool = False
+    #: Чем соотнесли (`replies/binding.BindingWay`): `label`, `headers`, `sender` или `none` — то же,
+    #: что легло у ответа в `replies.bound_by`. Пусто у повтора и у отказа: письма в этот раз не
+    #: привязывали (24.11.2026; итог приёма обещал способ ответу вебхука, а отдавал только журналу).
+    way: str | None = None
     #: Повтор вебхука: письмо с этим номером уже принимали.
     duplicate: bool = False
     #: Разбор ждёт человека.

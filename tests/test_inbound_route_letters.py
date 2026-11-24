@@ -146,7 +146,7 @@ class TestWhereTheLabelIs:
             ),
         )
 
-        assert answer["bound"]
+        assert (answer["bound"], answer["way"]) == (True, "label")
         assert (await _stored(session)).thread_id == sent.thread_id
 
     async def test_label_only_in_the_envelope_binds(
@@ -165,7 +165,7 @@ class TestWhereTheLabelIs:
             letter(sent, to=b"team@donor.example.test", envelope_to="team@donor.example.test"),
         )
 
-        assert not answer["bound"]
+        assert (answer["bound"], answer["way"]) == (False, "none")
         assert answer["needs_review"]
 
 
@@ -255,7 +255,7 @@ class TestRawMode:
         await _post(client, raw_mode(sent, email))
         again = await _post(client, raw_mode(sent, email))
 
-        assert again["duplicate"]
+        assert (again["duplicate"], again["way"]) == (True, None)
         assert len((await session.execute(select(ReplyModel))).scalars().all()) == 1
 
 

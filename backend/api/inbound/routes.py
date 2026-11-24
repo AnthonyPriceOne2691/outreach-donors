@@ -300,6 +300,7 @@ async def take_reply(
         reply_id=outcome.reply_id,
         kind=outcome.kind.value if outcome.kind else None,
         bound=outcome.bound,
+        way=None if outcome.duplicate else outcome.way.value,
         duplicate=outcome.duplicate,
         needs_review=outcome.needs_review,
         reason=refused or outcome.review_reason,
