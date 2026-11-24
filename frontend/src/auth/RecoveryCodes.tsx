@@ -4,6 +4,10 @@
  * Сервер хранит только их хеши: показать коды второй раз нечем. Поэтому экран не уходит, пока
  * человек сам не нажмёт «Я сохранил», и даёт два способа унести коды: скопировать и скачать
  * файлом. Каждый код пускает один раз вместо кода из приложения — когда телефона нет.
+ *
+ * Код — одной строкой (24.11.2026): шрифтом md в двух колонках узкой карточки он рвался по
+ * дефисам на две строки, и переписать его с экрана было легко с ошибкой. Ступень sm и запрет
+ * переноса: 19 знаков влезают в плитку двух колонок, а на узком экране колонка одна.
  */
 
 import { Alert, Button, Code, CopyButton, Group, SimpleGrid, Stack, Text } from '@mantine/core';
@@ -47,7 +51,14 @@ export function RecoveryCodes({ codes, note, account, onSaved }: Props) {
       </Alert>
       <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="xs" aria-label="Коды восстановления">
         {codes.map((code) => (
-          <Code key={code} fz="md" ta="center" className="glassQuiet" p="xs">
+          <Code
+            key={code}
+            fz="sm"
+            ta="center"
+            className="glassQuiet"
+            p="xs"
+            style={{ whiteSpace: 'nowrap' }}
+          >
             {code}
           </Code>
         ))}
