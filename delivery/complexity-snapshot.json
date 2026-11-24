@@ -4172,9 +4172,14 @@
       "worst": "is_demo:19"
     },
     "backend/shared/llm.py": {
-      "lines": 495,
+      "lines": 496,
       "complexity": 9,
       "worst": "_chat:294"
+    },
+    "backend/shared/llm_cache.py": {
+      "lines": 55,
+      "complexity": 3,
+      "worst": "cache_tokens_of:40"
     },
     "backend/shared/llm_marks.py": {
       "lines": 228,
