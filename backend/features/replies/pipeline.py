@@ -168,7 +168,7 @@ class Inbox:
             thread_id=addressee.message.thread_id if addressee else None,
             message_id=addressee.message.id if addressee else None,
             found=None,
-            unbound=bound.unbound,
+            bound=bound,
         )
         await self._session.flush()
         # Файлы — сразу за ответом и в той же транзакции: другой копии письма
