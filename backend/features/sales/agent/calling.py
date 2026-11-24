@@ -29,6 +29,7 @@ from backend.shared.llm import (
     content_of,
     is_reasoning,
     post_chat,
+    reasoning_effort,
     tokens_of,
 )
 
@@ -69,7 +70,7 @@ def payload(
         body["response_format"] = {"type": "json_schema", "json_schema": {**schema, "strict": True}}
     if is_reasoning(model):
         body["max_completion_tokens"] = TOKENS_REASONING
-        body["reasoning_effort"] = "minimal"
+        body["reasoning_effort"] = reasoning_effort(model, "minimal")
     else:
         body["max_tokens"] = TOKENS_PLAIN
         body["temperature"] = 0

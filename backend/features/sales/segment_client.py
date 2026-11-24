@@ -39,7 +39,15 @@ from backend.features.sales.segment_facts import SiteFacts
 from backend.features.sales.segment_scope import Scope
 from backend.features.sales.segment_text import SiteText
 from backend.features.sales.segment_tier import FlexPass, JudgeTier, judge_http, tier_fields
-from backend.shared.llm import ModelClient, Refusal, content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import (
+    ModelClient,
+    Refusal,
+    content_of,
+    is_reasoning,
+    post_chat,
+    reasoning_effort,
+    tokens_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +208,10 @@ def build_payload(
     факты сайта), потолок вывода — по семейству модели; тариф — полем только у экономного
     (`segment_tier.tier_fields`): тело обычного прежнее до байта."""
     limits: dict[str, Any] = (
-        {"max_completion_tokens": TOKENS_REASONING, "reasoning_effort": REASONING_EFFORT}
+        {
+            "max_completion_tokens": TOKENS_REASONING,
+            "reasoning_effort": reasoning_effort(model, REASONING_EFFORT),
+        }
         if is_reasoning(model)
         else {"max_tokens": TOKENS_PLAIN, "temperature": 0}
     )

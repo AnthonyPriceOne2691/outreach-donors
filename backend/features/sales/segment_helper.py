@@ -59,6 +59,7 @@ from backend.shared.llm import (
     content_of,
     is_reasoning,
     post_chat,
+    reasoning_effort,
     tokens_of,
 )
 
@@ -141,7 +142,10 @@ def build_payload(model: str, *, draft: str, system: str | None = None) -> dict[
     """Тело запроса: промпт файлом, черновик сообщением, строгая форма ответа; потолок вывода —
     по семейству модели. `system` — промпт вместо файла (eval гоняет испорченный)."""
     limits: dict[str, Any] = (
-        {"max_completion_tokens": TOKENS_REASONING, "reasoning_effort": REASONING_EFFORT}
+        {
+            "max_completion_tokens": TOKENS_REASONING,
+            "reasoning_effort": reasoning_effort(model, REASONING_EFFORT),
+        }
         if is_reasoning(model)
         else {"max_tokens": TOKENS_PLAIN, "temperature": 0}
     )
