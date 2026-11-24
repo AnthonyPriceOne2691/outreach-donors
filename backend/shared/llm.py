@@ -376,11 +376,11 @@ def tokens_of(body: dict[str, Any]) -> int:
     """
     usage = body.get("usage")
     usage = usage if isinstance(usage, dict) else {}
-    total = _count(usage.get("total_tokens"))
+    total = token_count(usage.get("total_tokens"))
     if total:
         return total
     for pair in TOKEN_PAIRS:
-        counted = sum(_count(usage.get(name)) for name in pair)
+        counted = sum(token_count(usage.get(name)) for name in pair)
         if counted:
             return counted
     logger.warning(
@@ -390,8 +390,9 @@ def tokens_of(body: dict[str, Any]) -> int:
     return 0
 
 
-def _count(value: object) -> int:
-    """Токены из поля `usage`: целое не меньше нуля, а прочее — ноль, как не названное."""
+def token_count(value: object) -> int:
+    """Токены из поля `usage`: целое не меньше нуля, а прочее — ноль, как не названное.
+    Одно правило на весь расход: им же считается кэш подсказки (`llm_cache`)."""
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
