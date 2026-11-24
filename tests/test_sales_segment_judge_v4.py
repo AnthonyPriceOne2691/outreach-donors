@@ -20,7 +20,8 @@ from backend.features.sales.hypothesis_countries import CountryPolicy, OtherCoun
 from backend.features.sales.segment_facts import Place, SiteFacts, read_facts
 from backend.features.sales.segment_models import Decider, Lane
 from backend.features.sales.segment_rules import RULES, SCOPE_FAILED, Case, first
-from backend.features.sales.segment_scope import Scope, read_scope, remembered
+from backend.features.sales.segment_scope import PROMPT_PATH as SCOPE_PROMPT
+from backend.features.sales.segment_scope import SCOPE_VERSION, Scope, read_scope, remembered
 from backend.features.sales.segment_text import PAGE_DESCRIPTION, PAGE_TITLE, SiteText
 from backend.features.sales.zone_country import country_of_host
 
@@ -237,6 +238,28 @@ def test_a_large_network_is_no_only_when_the_description_says_so() -> None:
     assert lane_of(chain, scope=JAPAN) == (Lane.ACCEPT, "no_places")
 
 
+@pytest.mark.parametrize(
+    ("served", "home", "want"),
+    [
+        ([["ES", "PT"]], "", (Lane.ACCEPT, "segment_market")),
+        ([["ES", "PT", "FR"]], "PT", (Lane.ACCEPT, "segment_market")),
+        ([["ES"]], "ES", (Lane.REJECT, "network_excluded")),
+        ([["*", "ES"]], "", (Lane.REJECT, "network_excluded")),
+        ([["ES", "PT", "FR", "IT"]], "", (Lane.REJECT, "network_excluded")),
+    ],
+    ids=["two-countries", "three-countries", "regional-site", "whole-world", "four-countries"],
+)
+def test_a_small_chain_is_judged_by_place_not_as_a_large_network(
+    served: list[list[str]], home: str, want: tuple[Lane, str]
+) -> None:
+    """Мелкая сеть сама называет все свои страны, и их две-три (`Case.small_chain`): её решает место,
+    а не отказ сети. Крупная — «весь мир», больше трёх стран или региональный сайт с одной своей
+    страной — отказ, если описание сетей не просит."""
+    chain = facts(network=True, served=served, home=home)
+
+    assert lane_of(chain, scope=NO_NETWORKS) == want
+
+
 def test_a_failed_description_parse_is_review_in_words_and_never_no_place() -> None:
     """Сбой разбора описания — не «мест нет»: правило «сегмент без места» не срабатывает, сайт —
     человеку словами, следующий проход спросит снова, а факты сайта остаются (оплачены)."""
@@ -399,11 +422,26 @@ def test_a_description_parse_not_of_the_form_is_a_failure_in_words(
 
 def test_the_run_report_keeps_the_parse_of_the_same_description_only() -> None:
     parsed = {"countries": ["JP"], "kinds": ["own"], "excludes_networks": False}
-    report = {"scope": {"digest": "d1", "version": "sales-segment-scope-v1", **parsed}}
+    report = {"scope": {"digest": "d1", "version": SCOPE_VERSION, **parsed}}
 
     assert remembered(report, "d1") == JAPAN
     assert remembered(report, "d2") is None
     assert remembered({"scope": {**report["scope"], "failed": "сбой"}}, "d1") is None
+    # Разбор v1 (сети — только фразой описания) не годится: описание разберут заново.
+    assert (
+        remembered({"scope": {**report["scope"], "version": "sales-segment-scope-v1"}}, "d1")
+        is None
+    )
+
+
+def test_networks_do_not_fit_unless_the_segment_asks_for_them() -> None:
+    """Правило владельца 20.10 «крупные международные сети и их региональные сайты — не подходят» —
+    по умолчанию (разбор v2, 24.11): описанию не нужна об этом фраза. Разбор 23.11: гипотеза без неё
+    приняла два сайта сетей."""
+    prompt = SCOPE_PROMPT.read_text(encoding="utf-8")
+
+    assert '"excludes_networks": false only when the segment itself asks for large' in prompt
+    assert SCOPE_VERSION == "sales-segment-scope-v2"
 
 
 # --- страна по доменной зоне --------------------------------------------------------------------------
@@ -504,19 +542,41 @@ def test_the_synthetic_set_holds_one_of_many_in_many_niches_and_scripts() -> Non
 
 
 def test_the_synthetic_set_holds_networks_in_many_niches_and_scripts() -> None:
-    """Факт сети держат разные ниши и письменности: описание говорит, что крупные международные сети
-    не подходят, — сайт сети «нет», и главный сайт группы, и сайт компании «из одной страны» со своими
-    офисами в нескольких; похожий бизнес с одним офисом и клиентами во многих странах — «да»."""
+    """Факт сети держат разные ниши и письменности: сайт сети «нет» — и главный сайт группы, и сайт
+    компании «из одной страны» со своими офисами в нескольких; похожий бизнес с одним офисом и клиентами
+    во многих странах — «да». С разбора v2 сети не подходят и без фразы о них в описании
+    (`network-default`), а описание, которое само просит сети (`network-wanted`), их берёт."""
     cases = _synthetic()
-    networks = [case for case in cases if "network" in case["tags"]]
+    wanted = [case for case in cases if "network-wanted" in case["tags"]]
+    networks = [case for case in cases if "network" in case["tags"] and case not in wanted]
     alike = [case for case in cases if "network-lookalike" in case["tags"]]
+    default = [case for case in networks + alike if "network-default" in case["tags"]]
     tags = {tag for case in networks for tag in case["tags"]}
 
     assert {case["expect"] for case in networks} == {"no"}
-    assert {case["expect"] for case in alike} == {"yes"}
+    assert {case["expect"] for case in alike + wanted} == {"yes"}
     assert len({case["hypothesis"] for case in networks}) >= 3
+    assert len({case["hypothesis"] for case in default}) >= 3
     assert len(alike) >= 2
+    assert len(wanted) >= 2
     assert len({"cyrillic", "latin", "rtl", "unspaced"} & tags) >= 3
-    for case in networks + alike:
-        assert re.search(r"(?i)сети|chains", case["segment"]), case["id"]
+    for case in networks + alike + wanted:
+        named = re.search(r"(?i)сет(и|ей)|chains", case["segment"])
+        assert bool(named) is (case not in default), case["id"]
+        assert re.fullmatch(SAMPLE_HOST, case["host"]), case["id"]
+
+
+def test_the_synthetic_set_holds_small_chains_in_many_niches() -> None:
+    """Мелкая сеть — несколько своих филиалов в двух-трёх странах — «да»: сети не подходят и без
+    фразы в описании, а факт сети модель ставит и такой сети — судья отказал бы ветклиникам в трёх
+    городах двух стран (замер 24.11). Случаи — в разных нишах и письменностях, описание сетей не
+    называет."""
+    chains = [case for case in _synthetic() if "small-chain" in case["tags"]]
+    tags = {tag for case in chains for tag in case["tags"]}
+
+    assert {case["expect"] for case in chains} == {"yes"}
+    assert len({case["hypothesis"] for case in chains}) >= 4
+    assert "cyrillic" in tags
+    for case in chains:
+        assert not re.search(r"(?i)сет(и|ей)|chains", case["segment"]), case["id"]
         assert re.fullmatch(SAMPLE_HOST, case["host"]), case["id"]
