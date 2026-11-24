@@ -61,6 +61,7 @@ from backend.shared.llm import (
     content_of,
     is_reasoning,
     post_chat,
+    reasoning_effort,
     tokens_of,
 )
 
@@ -202,7 +203,10 @@ def user_message(*, text: str, subject: str, services: Sequence[str] = ()) -> st
 def build_payload(model: str, *, user: str) -> dict[str, Any]:
     """Тело запроса: строгая форма JSON, потолок вывода — по семейству модели."""
     limits: dict[str, Any] = (
-        {"max_completion_tokens": TOKENS_REASONING, "reasoning_effort": "minimal"}
+        {
+            "max_completion_tokens": TOKENS_REASONING,
+            "reasoning_effort": reasoning_effort(model, "minimal"),
+        }
         if is_reasoning(model)
         else {"max_tokens": TOKENS_PLAIN, "temperature": 0}
     )
