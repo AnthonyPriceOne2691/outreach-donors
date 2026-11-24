@@ -218,13 +218,15 @@ def test_a_misfit_accepted_without_a_human_closes_the_gates(
 
 
 def test_a_fit_cut_off_closes_the_gates(monkeypatch: pytest.MonkeyPatch, capsys: Capture) -> None:
-    """Подходящие сайты, отсечённые моделью, — потерянные лиды: их чуть больше 10 % — ворота закрыты."""
+    """Подходящие сайты, отсечённые моделью, — потерянные лиды: их чуть больше 10 % — ворота закрыты.
+    Сайт под строгим и нестрогим описанием — два случая: такой не берём, иначе отсечённых больше."""
     fits = [case for case in SYNTHETIC if "yes" in case["expect"].split("|")]
     need = int(len(fits) * ev.Gates().false_reject_max) + 1
+    cases_of = Counter(case["host"] for case in SYNTHETIC)
     hosts = [
         case["host"] for case in fits if case["expect"] == "yes" and "rule" not in case["tags"]
     ]
-    hosts = [host for host in hosts if host not in LANGUAGE_FREE][:need]
+    hosts = [host for host in hosts if host not in LANGUAGE_FREE and cases_of[host] == 1][:need]
     use(monkeypatch, Oracle(SYNTHETIC, wrong=dict.fromkeys(hosts, "no")))
 
     assert ev.main([]) == 1

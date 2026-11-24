@@ -130,6 +130,16 @@ class Case:
             return False
         return self.known.world or len(self.places - {self.home}) > MARKET_MAX
 
+    @cached_property
+    def small_chain(self) -> bool:
+        """Сеть сама называет все свои страны, и их две-три: мелкая сеть, а не крупная международная.
+        Сайт «офисы в 40 странах» ставит «весь мир» (`*`, v7), региональный сайт крупной сети называет
+        одну свою страну. Замер 24.11: факт сети модель ставит и трём пекарням в трёх странах, и
+        ветклиникам в трёх городах двух стран, — с разбора описания v2 сети не подходят по умолчанию,
+        и мелкой сети судья отказал бы. Крупность числом мест не видна (на золотом наборе крупный
+        перевозчик тоже назвал три страны), поэтому мелкую сеть решает география, как до v2."""
+        return not self.known.world and 2 <= len(self.places) <= MARKET_MAX
+
     @property
     def foreign(self) -> frozenset[str]:
         return self.places - self.segment
@@ -217,6 +227,13 @@ def _no_places(case: Case) -> bool:
     return not case.places and not case.known.world
 
 
+def _large_network(case: Case) -> bool:
+    """Крупная международная сеть или её региональный сайт, а описание сетей не просит. Мелкая сеть
+    (`Case.small_chain`) — не она: её решают правила места ниже."""
+    excluded = case.scope is not None and case.scope.excludes_networks
+    return excluded and case.known.network and not case.small_chain
+
+
 def _among(case: Case) -> bool:
     """Страна сегмента — в длинном списке мест или в группе стран («по всей Европе»): модель
     раскрывает группу в страны, и страна сегмента попадает туда сама. Поэтому так — только когда
@@ -277,9 +294,11 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule(
         "network_excluded",
-        lambda c: c.known.network and c.scope is not None and c.scope.excludes_networks,
+        _large_network,
         Lane.REJECT,
-        lambda _c: "региональный сайт крупной международной компании: описание таких не берёт",
+        lambda _c: (
+            "крупная международная сеть или её региональный сайт: такие не подходят, если описание само их не просит"
+        ),
     ),
     Rule(
         "excluded_country",

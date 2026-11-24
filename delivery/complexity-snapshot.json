@@ -3852,7 +3852,7 @@
       "worst": "decide:278"
     },
     "backend/features/sales/segment_rules.py": {
-      "lines": 363,
+      "lines": 382,
       "complexity": 5,
       "worst": "market:108"
     },
@@ -3862,9 +3862,9 @@
       "worst": "execute:289"
     },
     "backend/features/sales/segment_scope.py": {
-      "lines": 186,
+      "lines": 189,
       "complexity": 8,
-      "worst": "remembered:148"
+      "worst": "remembered:151"
     },
     "backend/features/sales/segment_serp.py": {
       "lines": 314,

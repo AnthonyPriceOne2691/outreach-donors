@@ -34,7 +34,10 @@ from backend.features.sales.segment_models import SalesSegmentRunModel
 logger = logging.getLogger(__name__)
 
 #: Версия промпта разбора: правка файла — новая версия, прежний разбор в отчёте не годится.
-SCOPE_VERSION = "sales-segment-scope-v1"
+#: v2 (24.11.2026, правило владельца 20.10 «крупные международные сети и их региональные сайты — не
+#: подходят»): сети не подходят по умолчанию — `excludes_networks` ложно, только когда описание само их
+#: просит. В v1 правило включала лишь фраза в описании, и гипотеза без неё принимала сети.
+SCOPE_VERSION = "sales-segment-scope-v2"
 PROMPT_PATH = Path(__file__).with_name("prompts") / "segment_scope.md"
 #: Ключ разбора в отчёте прогона.
 KEY = "scope"
