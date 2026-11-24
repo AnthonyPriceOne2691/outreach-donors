@@ -224,10 +224,14 @@ def test_golden_set_must_match_the_manifest(
     golden.write_bytes(ev.SYNTHETIC.read_bytes())
     digest = hashlib.sha256(golden.read_bytes()).hexdigest()
     manifest = json.loads(ev.MANIFEST.read_text(encoding="utf-8"))
+    bare = tmp_path / "bare.json"
+    bare.write_text(json.dumps({**manifest, "sha256": None, "count": None}), encoding="utf-8")
 
     assert manifest["file"] == golden.name
-    assert ev.golden(str(tmp_path))  # манифест без хэша — набор берётся, хэш печатается
+    assert ev.golden(str(tmp_path), manifest=bare)  # без хэша — набор берётся, хэш печатается
     assert digest in capsys.readouterr().out
+    with pytest.raises(ev.SetError, match="не тот, что в манифесте"):
+        ev.golden(str(tmp_path))  # хэш манифеста — живого набора, не синтетики
 
     spoiled = tmp_path / "manifest.json"
     spoiled.write_text(json.dumps({**manifest, "sha256": "0" * 64}), encoding="utf-8")
@@ -250,3 +254,17 @@ def test_manifest_has_no_data_only_numbers() -> None:
         "dangerous": ev.Gates().dangerous,
         "false_unsubscribe": ev.Gates().false_unsubscribe,
     }
+
+
+def test_the_baseline_is_of_this_prompt_and_passes_the_gates() -> None:
+    """База — замер на нынешней версии промпта: правка промпта без нового замера видна здесь. Модель
+    базы проходит ворота, которые манифест предлагает."""
+    manifest = json.loads(ev.MANIFEST.read_text(encoding="utf-8"))
+    baseline, gates = manifest["baseline"], manifest["gates"]
+
+    assert baseline["prompt_version"] == reply_kind.PROMPT_VERSION
+    assert baseline["cases"] == manifest["count"]
+    assert baseline["recall"]["wants_to_talk"] >= gates["wants_to_talk_recall"]
+    assert baseline["recall"]["unsubscribe"] >= gates["unsubscribe_recall"]
+    assert baseline["dangerous"] <= gates["dangerous"]
+    assert baseline["false_unsubscribe"] <= gates["false_unsubscribe"]
