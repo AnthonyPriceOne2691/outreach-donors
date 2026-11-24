@@ -28,19 +28,31 @@ DR — метрика провайдера, её нет ни в ссылке, н
 оба — за вычетом обещанного идущими прогонами. Не влезает — не спрашивается ничего,
 а в причинах кандидатов сказано почему. До 12.10.2026 пакет капа не спрашивал вовсе.
 Кончились совсем — обходы не начинаются (`units_stop.py`), а кандидат без DR к письму не идёт.
+
+**Оплаченное не выбрасывается, а кривое имя не держит пакет** (24.11.2026). Домен кандидата —
+из чужой ссылки, и зону его мы нарочно не судим снимком списка (`donors/host.domain_name`):
+так в пакет попадают имя с выдуманной зоной, сокращение вроде «xx.yy», кусок адреса страницы
+с `.html`. Ahrefs отвергает такое имя отказом 400 и вместе с ним весь пакет. До правки отказ
+ронял и запрос донора целиком: пакеты до кривого имени были уже оплачены, а их ответы
+выбрасывались, и каждый пересчёт донора платил за те же домены снова, а его кандидаты так
+и стояли без DR. Теперь отвергнутое имя выкидывается, и пакет спрашивается без него: отказ
+400 юнитов не тратит (заголовков цены в нём нет, счётчик ключа его не видит). Само имя
+остаётся без DR и к письму не идёт. Пакет упал по другой причине — оплаченное раньше всё
+равно сохраняется (`PartialRatingsError`), а остальное спросит следующий пересчёт.
 """
 
 from __future__ import annotations
 
 import functools
 import logging
+import re
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import advertisers as advertisers_cfg
-from backend.features.ahrefs.client import AhrefsClient
+from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import (
     MAX_BATCH_TARGETS,
     UNITS_DR_SCREEN,
@@ -68,6 +80,37 @@ Ratings = Callable[[Sequence[str]], Awaitable[dict[str, int | None]]]
 
 #: Сколько юнитов можно потратить прямо сейчас — `runs.budget.units_free` с сессией.
 Allowance = Callable[[], Awaitable[int]]
+
+#: Сколько имён одного пакета Ahrefs может отвергнуть, пока мы выкидываем их по одному и
+#: спрашиваем остальное. Больше — пакет не спрашивается: столько кривых имён разом — уже не
+#: мусор чужих ссылок, а что-то сломалось у нас, и гадать дальше не нужно.
+MAX_REFUSED_NAMES = 5
+
+#: Как Ahrefs называет отвергнутое имя в теле отказа 400 (замечено на бою 21–24.11.2026):
+#: `{ "error": "bad 'targets': invalid domain or url: '<имя>'" }`.
+_REFUSED_NAME = re.compile(r"invalid domain or url: '([^']+)'")
+
+
+class PartialRatingsError(AhrefsError):
+    """DR получен не весь: пакет упал, когда прежние были уже оплачены.
+
+    `found` — оплаченное и полученное. Вызывающий обязан его сохранить: выброшенный ответ
+    следующий пересчёт покупает снова (`gate._rate`)."""
+
+    def __init__(self, cause: AhrefsError, found: dict[str, int | None]) -> None:
+        super().__init__(str(cause), permanent=cause.permanent, status=cause.status)
+        self.found = found
+
+
+def refused_name(error: AhrefsError, asked: Sequence[str]) -> str | None:
+    """Имя пакета, которое Ahrefs отверг как не домен, — или `None`: отказ о другом, или
+    названо имя, которого в пакете нет (тогда выкидывать нечего, и гадать мы не беремся)."""
+    if error.status != 400:
+        return None
+    found = _REFUSED_NAME.search(str(error))
+    if found is None or found.group(1) not in asked:
+        return None
+    return found.group(1)
 
 
 class RatingsRefusedError(RuntimeError):
@@ -140,11 +183,44 @@ async def ahrefs_ratings(
     found: dict[str, int | None] = {}
     for start in range(0, len(roots), MAX_BATCH_TARGETS):
         chunk = list(roots[start : start + MAX_BATCH_TARGETS])
-        response = await client.batch_metrics(chunk, ("url", "domain_rating"))
-        by_host = {_host_of(row): parse_domain_rating(row) for row in response.rows}
-        for root in chunk:
-            rating = by_host.get(root)
-            found[root] = None if rating is None else round(rating)
+        try:
+            found.update(await _chunk_ratings(client, chunk))
+        except AhrefsError as exc:
+            if not found:
+                raise
+            raise PartialRatingsError(exc, found) from exc
+    return found
+
+
+async def _chunk_ratings(client: AhrefsClient, chunk: list[str]) -> dict[str, int | None]:
+    """DR одного пакета. Имя, которое Ahrefs отверг как не домен (`refused_name`), выкидывается,
+    а пакет спрашивается без него — до `MAX_REFUSED_NAMES` имён. В ответе отвергнутого имени нет:
+    DR не проверен, к письму оно не идёт, а следующий пересчёт спросит его снова — тем же
+    бесплатным отказом."""
+    asked = list(chunk)
+    dropped = 0
+    while asked:
+        try:
+            response = await client.batch_metrics(asked, ("url", "domain_rating"))
+        except AhrefsError as exc:
+            name = refused_name(exc, asked)
+            if name is None or dropped >= MAX_REFUSED_NAMES:
+                raise
+            logger.info("DR: Ahrefs не принимает %r как домен — пакет спрашивается без него", name)
+            dropped += 1
+            asked.remove(name)
+            continue
+        return _ratings_of(response.rows, asked)
+    return {}
+
+
+def _ratings_of(rows: Sequence[dict[str, Any]], roots: Sequence[str]) -> dict[str, int | None]:
+    """DR каждого спрошенного домена из строк ответа; строки нет — провайдер домена не знает."""
+    by_host = {_host_of(row): parse_domain_rating(row) for row in rows}
+    found: dict[str, int | None] = {}
+    for root in roots:
+        rating = by_host.get(root)
+        found[root] = None if rating is None else round(rating)
     return found
 
 

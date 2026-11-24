@@ -421,7 +421,8 @@ async def test_the_ahrefs_cap_is_a_cause_from_ninety_five_percent(
     session: AsyncSession, spent: int, code: str, caused: bool
 ) -> None:
     """Уровень — в коде тревоги, и повод говорится вместе с ним: переход 80 → 95 — новое
-    сообщение с поводом (`key_watch`)."""
+    сообщение с поводом (`key_watch`). Своего «не больше N» нет — кап и есть ключ, и что
+    сделать — в Ahrefs, а не на «Расходе» (24.11.2026)."""
     await known_key(session, key_limit=100_000)
     usage.record(session, operation="batch_metrics", units=spent)
     await session.flush()
@@ -429,7 +430,8 @@ async def test_the_ahrefs_cap_is_a_cause_from_ninety_five_percent(
     mark = _concern(await silence.alarms(session, stages=EVERY_STAGE), code)
 
     assert mark.cause is caused
-    assert ("на экране «Расход»" in mark.todo) is caused
+    assert ("поднять лимит ключа — в Ahrefs" in mark.todo) is caused
+    assert "на экране «Расход»" not in mark.todo
 
 
 async def test_a_low_serp_balance_is_a_cause(session: AsyncSession) -> None:

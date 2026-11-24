@@ -244,7 +244,21 @@ class TestTheWatch:
             f"обнуление ключа {day_words(reset)}."
         )
         # Пометка предупреждения не говорит, что сделать, — это говорят подробности. Наш расход
-        # 40 000 — те же «осталось 10 000 из 50 000»: второй раз он не назван.
+        # 40 000 — те же «осталось 10 000 из 50 000»: второй раз он не назван. Своего «не больше N»
+        # нет — кап и есть ключ, и поднимают его в Ahrefs: на «Расходе» выше ключа не поднять
+        # (до 24.11.2026 тревога советовала «Расход»).
+        assert alarm.detail.endswith("Упирается в наш кап; поднять лимит ключа — в Ahrefs")
+
+    async def test_a_cap_below_the_key_is_raised_on_the_usage_screen(
+        self, session: AsyncSession
+    ) -> None:
+        """Свой кап ниже ключа — его и сдвигают, на «Расходе»."""
+        await known_key(session, key_used=20_000, reset_at=_soon())
+        session.add(AhrefsCapModel(units_cap=25_000))
+        await _spent(session, 20_000)
+
+        alarm = (await self._found(session))[key_watch.WARN_CODE]
+
         assert alarm.detail.endswith("Упирается в наш кап; поднять кап — на экране «Расход»")
 
     async def test_ninety_five_by_the_neighbour_on_the_key(self, session: AsyncSession) -> None:

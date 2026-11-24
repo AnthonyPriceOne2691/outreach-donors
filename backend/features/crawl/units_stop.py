@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import ahrefs as ahrefs_cfg
 from backend.features.ahrefs.units import MIN_REQUEST_UNITS
 from backend.features.core.models.advertiser import CandidateModel
-from backend.features.ops.key_watch import HOW_TO_RAISE, binding_words, until_words
+from backend.features.ops.key_watch import HOW_TO_RAISE, binding_words, raise_where, until_words
 from backend.features.runs.ahrefs_cap import KeyCap, key_cap
 from backend.features.runs.budget import CapExceededError
 from backend.features.runs.repository import RunRepository
@@ -75,7 +75,7 @@ def _unknown(cap: KeyCap) -> UnitsStop:
 
 
 def _no_units(cap: KeyCap, left: int) -> UnitsStop:
-    until, how = until_words(cap), HOW_TO_RAISE[cap.binding or "cap"]
+    until, how = until_words(cap), HOW_TO_RAISE[raise_where(cap)]
     return UnitsStop(
         NO_UNITS,
         f"Свободно {spaced(left)}, а самый дешёвый запрос DR стоит {MIN_REQUEST_UNITS} юнитов. "

@@ -59,6 +59,7 @@ from backend.features.core.models.advertiser import CARRIED, CandidateMemoryMode
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.crawl import always_depth
 from backend.features.crawl.big_sites import (
+    PartialRatingsError,
     Ratings,
     RatingsRefusedError,
     apply_ratings,
@@ -212,24 +213,41 @@ async def _rate(candidates: list[Candidate], previous: _Previous, ratings: Ratin
     «DR не проверен». Повтор — следующим пересчётом, юниты за уже
     спрошенное не тратятся. Отказ капа (`RatingsRefusedError`) — так же,
     но с причиной в словах кандидата: кап — не поломка провайдера.
+    Пакет упал, когда прежние были уже оплачены (`PartialRatingsError`), —
+    оплаченное сохраняется: выброшенный ответ следующий пересчёт купил бы снова.
     """
     asked = sorted({c.target_root for c in candidates if needs_rating(c)} - set(previous.ratings))
+    fresh: dict[str, int | None] = {}
     refused: str | None = None
     if asked and ratings is not None:
-        try:
-            fresh = await ratings(asked)
-        except RatingsRefusedError as exc:
-            logger.warning("DR кандидатов не спрошен (%s доменов): %s", len(asked), exc)
-            refused = str(exc)
-        except AhrefsError as exc:
-            logger.warning("DR кандидатов не получен (%s доменов): %s", len(asked), exc)
-        else:
-            now = datetime.now(UTC)
-            previous.ratings.update(fresh)
-            previous.rated_at.update(dict.fromkeys(fresh, now))
+        fresh, refused = await _ask(ratings, asked)
+    if fresh:
+        now = datetime.now(UTC)
+        previous.ratings.update(fresh)
+        previous.rated_at.update(dict.fromkeys(fresh, now))
     blocked = apply_ratings(candidates, previous.ratings, refused=refused)
     if blocked:
         logger.info("кандидаты: крупных сайтов (DR > 80) отсеяно %s", blocked)
+
+
+async def _ask(ratings: Ratings, asked: list[str]) -> tuple[dict[str, int | None], str | None]:
+    """DR у провайдера — и почему его не спросили (отказ капа словами), или `None`.
+
+    Отказ не роняет пересчёт. Пакет упал, когда прежние были уже оплачены
+    (`PartialRatingsError`), — оплаченное возвращается: выброшенный ответ
+    следующий пересчёт купил бы снова (24.11.2026)."""
+    try:
+        return await ratings(asked), None
+    except RatingsRefusedError as exc:
+        logger.warning("DR кандидатов не спрошен (%s доменов): %s", len(asked), exc)
+        return {}, str(exc)
+    except PartialRatingsError as exc:
+        found = len(exc.found)
+        logger.warning("DR кандидатов получен не весь (%s из %s): %s", found, len(asked), exc)
+        return exc.found, None
+    except AhrefsError as exc:
+        logger.warning("DR кандидатов не получен (%s доменов): %s", len(asked), exc)
+        return {}, None
 
 
 def bought_here(links: Sequence[OutLink], roots: set[str]) -> dict[str, int]:
