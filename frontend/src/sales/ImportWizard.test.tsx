@@ -170,6 +170,22 @@ async function readFile(user: User) {
 }
 
 describe('мастер загрузки', () => {
+  it('книгу с гипотезами по листам зовёт нести на «Гипотезы», а не сюда', async () => {
+    const user = await openWizard();
+
+    expect(
+      await screen.findByText(/Несколько гипотез листами книги Excel/, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '«Гипотезы»' })).toHaveAttribute(
+      'href',
+      '/sales?tab=hypotheses',
+    );
+
+    // Подсказка — про книгу, а не про вид источника: у ссылки на таблицу она та же.
+    await user.click(screen.getByRole('radio', { name: 'Ссылка на Google-таблицу' }));
+    expect(screen.getByText(/Несколько гипотез листами книги Excel/)).toBeInTheDocument();
+  });
+
   it('A1: файл с тремя плохими строками — «загружено 97, отклонено 3» и причины словами', async () => {
     const user = await openWizard();
 

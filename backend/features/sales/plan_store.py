@@ -10,8 +10,9 @@
 - у каждого листа цель «Найти сайтов» — своя или общая из окна загрузки; нет ни той, ни другой —
   отказ, а не сбор до предельной глубины без цели;
 - потолки плана и гипотезы обязательны и больше нуля (решение владельца 16.11);
-- лист — новая гипотеза: имя существующей гипотезы — отказ «переименуйте лист» (решение владельца
-  16.11), той же проверкой, что у заведения гипотезы (`hypotheses._free`: гипотеза и рассылка
+- лист — новая гипотеза: имя существующей гипотезы — отказ словами «измените поле «Название»»
+  (решение владельца 16.11; слова — 25.11: имя даёт поле карточки, ярлык листа на него не влияет),
+  той же проверкой, что у заведения гипотезы (`hypotheses._free`: гипотеза и рассылка
   «Продажи: <имя>»).
 
 **Запись — в транзакции вызывающего, коммит — за ним**: гипотеза — правилом заведения
@@ -41,6 +42,7 @@ from backend.features.sales import chain, chain_text, hypotheses
 from backend.features.sales.hypothesis_countries import OtherCountries
 from backend.features.sales.intake import IntakeError
 from backend.features.sales.models import SalesHypothesisModel
+from backend.features.sales.plan_card import LABELS, Field
 from backend.features.sales.plan_estimate import PlanEstimate
 from backend.features.sales.plan_file import PlanDraft, PlanHypothesis
 from backend.features.sales.plan_models import (
@@ -183,7 +185,10 @@ async def taken_names(session: AsyncSession, draft: PlanDraft) -> list[str]:
         except hypotheses.NameTakenError as exc:
             # Занятое имя — ответ человеку, а не сбой: слова — в отказе, журнал — лист.
             logger.info("план работ: имя листа занято", extra={"sheet": sheet.sheet})
-            found.append(f"лист «{sheet.sheet}»: {exc} — переименуйте лист")
+            found.append(
+                f"лист «{sheet.sheet}»: {exc} — измените поле «{LABELS[Field.NAME]}» на листе "
+                "(ярлык листа на имя не влияет)"
+            )
     return found
 
 

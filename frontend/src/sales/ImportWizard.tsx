@@ -25,10 +25,14 @@
  *
  * **Язык и страна или пояс по умолчанию** (`ImportDefaults`) — выбор человека, как
  * сопоставление: уходят с каждым предпросмотром и с загрузкой, «Загрузить ещё» их держит.
+ *
+ * **Книга Excel с гипотезами по листам — не сюда** (25.11.2026): это план работ, и мастер говорит,
+ * где его грузят, — человек с книгой приходил сюда и упирался в «Файл CSV».
  */
 
 import {
   Alert,
+  Anchor,
   Button,
   Card,
   FileInput,
@@ -44,6 +48,7 @@ import {
 import { IconUpload } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { listHypotheses, loadImport, previewImport } from '../api/sales';
@@ -92,6 +97,27 @@ interface SourceStepProps {
   onFile: (file: File | null) => void;
   onLink: (link: string) => void;
   onRead: () => void;
+}
+
+/** Куда нести книгу, где гипотезы — листами: это план работ, и грузят его не здесь. */
+function PlanHint() {
+  return (
+    <Text size="sm" c="dimmed">
+      Несколько гипотез листами книги Excel — это план работ: кнопка «Загрузить план работ» на
+      вкладке{' '}
+      <Anchor
+        component={Link}
+        to="/sales?tab=hypotheses"
+        size="sm"
+        c="var(--ink)"
+        underline="always"
+        className="inkLink"
+      >
+        «Гипотезы»
+      </Anchor>
+      .
+    </Text>
+  );
 }
 
 /** Чего не хватает, чтобы прочитать источник, или что мешает, — словами у кнопки. */
@@ -154,6 +180,7 @@ function SourceStep(props: SourceStepProps) {
           <Radio value="link" label="Ссылка на Google-таблицу" />
         </Group>
       </Radio.Group>
+      <PlanHint />
       {kind === 'file' ? (
         <FileInput
           label="Файл с базой"
