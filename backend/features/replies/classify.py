@@ -47,6 +47,19 @@
 передал коллеге» пишет и человек, а в заявку с номером отвечает и живой
 сотрудник. Сумма и файл перевешивают, как у робота.
 
+**Служба обещает ответить позже** — автоответчик и без номера заявки (проверка прода
+25.11.2026: среди ответов рекламодателей, ждавших человека, — подтверждения служб
+поддержки без номера, оценка чата и письмо из одной точки). Нужны обещание ответить в срок
+(глагол и срок одной фразой, `ticket_phrases.ANSWER_LATER_RE`) и фраза о приёме обращения
+или лицо службы («our support team», `SERVICE_TEAM`) в той же фразе, что и срок, — только
+в коротком письме (`PROMISE_MAX_CHARS`) и без первого лица единственного числа («I», «ich»,
+«я»): служба о себе говорит «мы». Каждый признак по отдельности пишет и человек: «служба поддержки
+ответит вам», «наша команда посмотрит на следующей неделе», «we have opened a request with
+our procurement department» (ревью продаж 25.11.2026). **Оценка разговора** («Rate your
+conversation») — в письме из одной строки, **письмо из знаков препинания** — «.» (эмодзи и
+пустое тело — ответ). Сумма и файл перевешивают все три: живой сотрудник поддержки,
+назвавший цену, — ответ.
+
 Правила лежат списком и разбираются по порядку, а не цепочкой `if`:
 список видно целиком, и переставить в нём строку — значит изменить
 правило осознанно. Каждое правило называет себя, и название попадает
@@ -61,6 +74,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -108,6 +122,8 @@ _MACHINE_SIGNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: Адрес сайта в теме: «vacationguide.com». Последняя часть — буквы,
 #: чтобы «5.1.1» и «e.g.» адресом не считались.
 _HOST = re.compile(r"\b[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{2,}\b")
+#: Граница фразы: после точки, восклицательного или вопросительного знака — или перевод строки.
+_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
 def _header_says(incoming: Incoming, name: str, *values: str) -> bool:
@@ -240,13 +256,71 @@ def _ticket_receipt(incoming: Incoming, body: str) -> bool:
     )
 
 
-def _service_phrase(incoming: Incoming, body: str) -> bool:
-    return (
-        _asks_to_unsubscribe(incoming, body)
-        or _auto_subject(incoming)
-        or _absent_in_text(incoming, body)
-        or _ticket_receipt(incoming, body)
+#: Длиннее — уже не подтверждение службы, а деловое письмо: обещание ответить в нём — часть
+#: дела. Подтверждения с прода 25.11.2026 — короче этого втрое.
+PROMISE_MAX_CHARS = 800
+#: Оценка разговора приходит одной строкой.
+RATING_MAX_CHARS = 200
+
+
+def _flat_length(body: str) -> int:
+    return len(" ".join(body.split()))
+
+
+def _service_promise(incoming: Incoming, body: str) -> bool:
+    """Служба обещает ответить в срок — вместе с фразой о приёме обращения или лицом службы в
+    той же фразе. Только в коротком письме без файла и без «я»: первое лицо — человек."""
+    if incoming.has_price_file or _flat_length(body) > PROMISE_MAX_CHARS:
+        return False
+    if ticket_phrases.FIRST_PERSON_RE.search(body):
+        return False
+    if ticket_phrases.TICKET_RECEIPT_RE.search(body) and ticket_phrases.ANSWER_LATER_RE.search(
+        body
+    ):
+        return True
+    # Лицо службы и срок — одной фразой: «Our support team uses a similar tool. We'll get back to
+    # you within 2 weeks» — интерес человека, а не подтверждение (ревью продаж 25.11.2026).
+    return any(
+        ticket_phrases.SERVICE_TEAM_RE.search(sentence)
+        and ticket_phrases.ANSWER_LATER_RE.search(sentence)
+        for sentence in _SENTENCE.split(body)
     )
+
+
+def _chat_rating(incoming: Incoming, body: str) -> bool:
+    """Оценка разговора в чате поддержки — письмо из одной строки."""
+    return (
+        not incoming.has_price_file
+        and _flat_length(body) <= RATING_MAX_CHARS
+        and bool(ticket_phrases.CHAT_RATING_RE.search(body))
+    )
+
+
+def _only_punctuation(incoming: Incoming, body: str) -> bool:
+    """Письмо из одних знаков препинания — «.» из чата поддержки, а не ответ. Эмодзи — ответ
+    («👍» — да), пустое тело — тоже: ответ бывает написан в теме (ревью продаж 25.11.2026)."""
+    text = body.strip()
+    return (
+        bool(text)
+        and not incoming.has_price_file
+        and all(unicodedata.category(char)[0] in "PZC" for char in text)
+        and any(unicodedata.category(char)[0] == "P" for char in text)
+    )
+
+
+#: Слова служебного письма — то, что сумма в тексте перевешивает (`_sum_outweighs_phrase`).
+_SERVICE_PHRASES: tuple[_Check, ...] = (
+    _asks_to_unsubscribe,
+    _auto_subject,
+    _absent_in_text,
+    _ticket_receipt,
+    _service_promise,
+    _chat_rating,
+)
+
+
+def _service_phrase(incoming: Incoming, body: str) -> bool:
+    return any(check(incoming, body) for check in _SERVICE_PHRASES)
 
 
 def _weak_sign(incoming: Incoming, body: str) -> bool:
@@ -311,6 +385,9 @@ RULES: tuple[tuple[str, ReplyKind, _Check], ...] = (
     ("автоответчик по теме", ReplyKind.AUTO_REPLY, _auto_subject),
     ("автоответчик по тексту", ReplyKind.AUTO_REPLY, _absent_in_text),
     ("подтверждение заявки", ReplyKind.AUTO_REPLY, _ticket_receipt),
+    ("служба обещает ответить", ReplyKind.AUTO_REPLY, _service_promise),
+    ("оценка разговора", ReplyKind.AUTO_REPLY, _chat_rating),
+    ("письмо из знаков препинания", ReplyKind.AUTO_REPLY, _only_punctuation),
     ("письмо робота без суммы и файла", ReplyKind.AUTO_REPLY, _robot_without_file),
 )
 

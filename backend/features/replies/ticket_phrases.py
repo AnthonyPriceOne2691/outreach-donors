@@ -34,6 +34,13 @@ TICKET_RECEIPT: Table = {
         r"(?:request|ticket|case|enquiry|inquiry|message|e-?mail|query)\b",
         r"\byour\s+(?:case|ticket|request|reference)\s+(?:number|no\.?|id|#)\s+is\b",
         r"\b(?:please\s+)?rate\s+(?:our|the)\s+(?:support|service|customer\s+service|response|agent)\b",
+        # Проверка прода 25.11.2026: «We’ve created a new ticket (#48213)», «thank you for
+        # opening a new request» — служба заводит заявку сама.
+        # Голое «request» — не заявка службы: «we have opened a request with our procurement
+        # department» пишет человек (ревью продаж 25.11.2026), поэтому — с «new» или «support».
+        r"\bwe(?:\s+have|['’]ve)\s+(?:created|opened|logged|registered)\s+a\s+"
+        r"(?:new\s+(?:support\s+)?(?:ticket|case|request)|support\s+(?:ticket|case|request)|ticket|case)\b",
+        r"\bthank(?:s|\s+you)\s+for\s+opening\s+a\s+new\s+(?:support\s+)?(?:ticket|case|request)\b",
     ),
     "de": (
         r"\bihre?\s+(?:anfrage|nachricht|e-?mail|ticket|meldung|support-?anfrage)\b[^.!?]{0,60}?"
@@ -116,8 +123,9 @@ TICKET_WORD: Table = {
 
 TICKET_RECEIPT_RE = compiled(TICKET_RECEIPT)
 
-#: Знак номера после слова заявки: «#», «№», «No.», «Nr.», «n°», «number», «номер».
-_NUMBER_SIGN = r"(?:#|№|n[°º]|no\.?|nr\.?|number|nummer|número|numero|numer|номер)"
+#: Знак номера после слова заявки: «#», «№», «No.», «Nr.», «n°», «ID», «number», «номер».
+#: «ID» — проверка прода 25.11.2026: «Your ticket ID is 48213-E» номером не считался.
+_NUMBER_SIGN = r"(?:#|№|n[°º]|no\.?|nr\.?|id|number|nummer|número|numero|numer|номер)"
 _TICKET_WORDS = "|".join(word for lang in LANGUAGES for word in TICKET_WORD[lang])
 
 #: Номер заявки — в теме или в тексте. Голое число номером не считается:
@@ -136,3 +144,124 @@ TICKET_NUMBER_RE = re.compile(
     r"(?!(?:19|20)\d\d\b)\d{3,}\b",
     re.I,
 )
+
+#: Лицо службы поддержки: «our support team», «a member of our Customer Service Team», «one of
+#: our support agents». Само по себе ничего не решает: «the customer service team will be able to
+#: help you, please write to them» пишет человек (ревью продаж 25.11.2026). Решает вместе с
+#: обещанием ответить в срок (`ANSWER_LATER_RE`) — правило «служба обещает ответить» (`classify`).
+SERVICE_TEAM: Table = {
+    "en": (
+        r"\b(?:our|the|one\s+of\s+our|a\s+member\s+of\s+(?:our|the))\s+(?:customer\s+)?"
+        r"(?:support|service|care|help\s*desk|customer\s+service|customer\s+care)\s+"
+        r"(?:team|agents?|specialists?|representatives?|staff)\b",
+    ),
+    "de": (
+        r"\b(?:unser(?:e[mn]?)?|ein\s+mitarbeiter\s+unseres)\s+(?:support|kundenservice|kundendienst)"
+        r"(?:-?team)?s?\b",
+    ),
+    "fr": (
+        r"\b(?:notre|un\s+membre\s+de\s+notre)\s+(?:équipe\s+(?:support|du\s+support|du\s+service\s+client)"
+        r"|service\s+client|support)\b",
+    ),
+    "es": (
+        r"\b(?:nuestro|un\s+miembro\s+de\s+nuestro)\s+(?:equipo\s+de\s+(?:soporte|atención)"
+        r"|servicio\s+de\s+atención(?:\s+al\s+cliente)?|soporte)\b",
+    ),
+    "it": (
+        r"\b(?:il\s+nostro|un\s+membro\s+del\s+nostro)\s+(?:team\s+di\s+supporto|servizio\s+clienti|"
+        r"supporto)\b",
+    ),
+    "pt": (
+        r"\b(?:nossa\s+equipe\s+de\s+(?:suporte|atendimento)|nosso\s+(?:suporte|atendimento))\b",
+    ),
+    "nl": (
+        r"\b(?:ons|een\s+medewerker\s+van\s+ons)\s+(?:supportteam|klantenservice|serviceteam)\b",
+    ),
+    "pl": (r"\b(?:nasz|naszego)\s+(?:zespół\s+(?:wsparcia|obsługi)|konsultant|dział\s+obsługi)\b",),
+    "ru": (
+        r"\b(?:наш[аи]?\s+)?(?:служба\s+поддержки|специалист[ыа]?\s+(?:службы\s+)?поддержки|"
+        r"оператор[ыа]?\s+поддержки)\b",
+    ),
+}
+
+#: Обещание ответить — глаголом ответа и сроком, в любом порядке внутри фразы: «will get back to
+#: you as soon as possible», «responderemos lo antes posible», «sich bald bei Ihnen melden». Без
+#: срока не обещание: «Служба поддержки ответит вам» — человек, передавший письмо.
+PROMISE_VERB: Table = {
+    "en": (
+        r"get\s+back\s+to\s+you|respond(?:\s+to\s+you)?|reply(?:\s+to\s+you)?|be\s+in\s+touch|"
+        r"contact\s+you|assist\s+you|answer\s+you",
+    ),
+    "de": (r"melden|antworten|kontaktieren|zurückmelden",),
+    "fr": (
+        r"répondr(?:a|ons|ont)|reviendr(?:a|ons|ont)\s+vers\s+vous|(?:re)?contacter(?:a|ons|ont)",
+    ),
+    "es": (r"responder(?:á|emos|án)|contactar(?:á|emos|án)|pondr(?:á|emos|án)\s+en\s+contacto",),
+    "it": (r"rispond(?:erà|eremo|eranno)|(?:ri)?contatt(?:erà|eremo|eranno)",),
+    "pt": (
+        r"respond(?:erá|eremos|erão)|retorn(?:ará|aremos|arão)|entr(?:ará|aremos|arão)\s+em\s+contato",
+    ),
+    "nl": (r"contact|reageren|antwoorden",),
+    "pl": (r"odpowie(?:my)?|skontaktuje(?:my)?\s+się|odezwie(?:my)?\s+się",),
+    "ru": (r"ответ(?:им|ит|ят)|свяж(?:емся|ется|утся)",),
+}
+PROMISE_TIME: Table = {
+    "en": (
+        r"as\s+soon\s+as\s+(?:possible|we\s+can)|shortly|as\s+quickly\s+as\s+possible|within\s+\d+|"
+        r"in\s+the\s+next\s+\d+",
+    ),
+    "de": (
+        r"so\s+schnell\s+wie\s+möglich|schnellstmöglich|in\s+kürze|zeitnah|innerhalb\s+von\s+\d+|bald",
+    ),
+    "fr": (
+        r"dans\s+les\s+(?:plus\s+)?brefs\s+délais|rapidement|sous\s+\d+|au\s+plus\s+vite|"
+        r"dès\s+que\s+possible",
+    ),
+    "es": (r"lo\s+antes\s+posible|en\s+breve|a\s+la\s+mayor\s+brevedad|en\s+las\s+próximas\s+\d+",),
+    "it": (r"al\s+più\s+presto|a\s+breve|il\s+prima\s+possibile|entro\s+\d+",),
+    "pt": (
+        r"o\s+mais\s+(?:breve|rápido)\s+possível|em\s+breve|assim\s+que\s+possível|em\s+até\s+\d+",
+    ),
+    "nl": (r"zo\s+snel\s+mogelijk|spoedig|binnenkort|binnen\s+\d+",),
+    "pl": (r"najszybciej\s+jak|jak\s+najszybciej|wkrótce|niezwłocznie|w\s+ciągu\s+\d+",),
+    "ru": (r"в\s+ближайшее\s+время|как\s+можно\s+скорее|в\s+кратчайшие\s+сроки|в\s+течение\s+\d+",),
+}
+
+#: Оценка разговора в чате поддержки — письмо из одной строки: «Rate your conversation»
+#: (проверка прода 25.11.2026). Решает только в очень коротком письме (`classify`).
+CHAT_RATING: Table = {
+    "en": (r"\b(?:rate|review)\s+(?:your|this|the)\s+(?:conversation|chat)\b",),
+    "de": (r"\bbewerten\s+sie\s+(?:dieses|das|ihr)\s+(?:gespräch|chat)\b",),
+    "fr": (r"\b(?:évaluez|notez)\s+(?:cette|votre)\s+(?:conversation|discussion)\b",),
+    "es": (r"\b(?:valora|califica|evalúa)\s+(?:esta|tu|su)\s+(?:conversación|chat)\b",),
+    "it": (r"\b(?:valuta|vota)\s+(?:questa|la\s+tua)\s+(?:conversazione|chat)\b",),
+    "pt": (r"\b(?:avalie|classifique)\s+(?:esta|sua|a)\s+(?:conversa|conversação)\b",),
+    "nl": (r"\bbeoordeel\s+(?:dit|uw|je)\s+(?:gesprek|chat)\b",),
+    "pl": (r"\boceń\s+(?:tę|swoją)\s+(?:rozmowę|konwersację)\b",),
+    "ru": (r"\bоцените\s+(?:этот\s+|наш\s+)?(?:диалог|разговор|чат)\b",),
+}
+
+
+def _either_order(verb: str, time: str) -> str:
+    return rf"\b(?:{verb})\b[^.!?]{{0,60}}?\b(?:{time})|\b(?:{time})\b[^.!?]{{0,60}}?\b(?:{verb})\b"
+
+
+SERVICE_TEAM_RE = compiled(SERVICE_TEAM)
+#: Обещание ответить в срок — глагол и срок одной фразой, на всех языках словаря.
+ANSWER_LATER_RE = re.compile(
+    "|".join(
+        f"(?:{_either_order(verb, time)})"
+        for lang in LANGUAGES
+        for verb in PROMISE_VERB[lang]
+        for time in PROMISE_TIME[lang]
+    ),
+    re.I,
+)
+CHAT_RATING_RE = compiled(CHAT_RATING)
+
+#: Первое лицо единственного числа — пишет человек: служба о себе говорит «мы» и «команда».
+#: «Thanks, I've forwarded your email to our support team and I'll get back to you shortly»,
+#: «ich habe es an unser Support-Team weitergeleitet, wir melden uns bald» (ревью продаж
+#: 25.11.2026). «I» — только заглавное: строчное «i» — польское «и» и итальянский артикль; «ja»
+#: не берём — это и немецкое, и нидерландское «да».
+FIRST_PERSON_RE = re.compile(r"\bI\b|(?i:\b(?:ich|je|ik|eu|io|yo|я)\b|\bj['’])")

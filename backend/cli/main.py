@@ -51,6 +51,8 @@ from backend.cli.probe_donor import add_parser as add_probe_donor_parser
 from backend.cli.probe_donor import cmd_probe_donor
 from backend.cli.prune import add_parser as add_prune_parser
 from backend.cli.prune import cmd_prune
+from backend.cli.replies_relabel import add_parser as add_replies_relabel_parser
+from backend.cli.replies_relabel import cmd_replies_relabel
 from backend.cli.review_queue import add_parser as add_review_queue_parser
 from backend.cli.review_queue import cmd_review_queue
 from backend.cli.run_judge import print_judge as _print_judge
@@ -373,6 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_contact_sweep_parser(sub)
     add_contact_refind_parser(sub)
+    add_replies_relabel_parser(sub)
     add_crawl_parser(sub)
     add_advertisers_parser(sub)
     add_letters_parser(sub)
@@ -433,6 +436,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "contacts": cmd_contacts,
     "contacts-file": cmd_contacts_file,
     "contacts-refind": cmd_contacts_refind,
+    "replies-relabel": cmd_replies_relabel,
     "crawl": cmd_crawl,
     **ADVERTISERS_COMMANDS,
     **ACCESS_COMMANDS,
