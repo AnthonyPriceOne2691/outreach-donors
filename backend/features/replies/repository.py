@@ -480,6 +480,7 @@ class ReplyRepository(DonorCardWrites):
         в отказ (`lead_refusal.refuse`). Иначе — `LeadError` словами: не лид, уже в работе
         или уже в отказе — кем и когда. **Под замком строки** (ревью 25.11.2026): два нажатия
         разом прошли бы проверку оба — второе ждёт коммита первого и читает свежую строку."""
+        await self._session.flush()  # своё незаписанное решение — в строку: refresh его не сотрёт
         await self._session.refresh(reply, with_for_update=True)
         stage = stage_rules.lead_stage(await self.stage_of(reply), reply.id)
         if reply.kind is not ReplyKind.HUMAN or stage is not Stage.ADVERTISERS:
