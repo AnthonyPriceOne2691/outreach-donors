@@ -8,6 +8,7 @@
 
 import { request } from './client';
 import type { LetterAudience } from './letters';
+import type { ContactsBudget } from './contacts';
 import type { CandidateCard, CandidatesView, ContactsQueued, ContactsState } from './types';
 
 /** Над кнопкой «Перевести»: сколько переводить и сколько уже заведено. */
@@ -202,6 +203,11 @@ export function promoteAdvertisers(): Promise<PromoteResult> {
 export function fetchAdvertiserContacts(audience?: LetterAudience): Promise<ContactsState> {
   const scope = audience === undefined ? '' : `?audience=${audience}`;
   return request<ContactsState>(`/advertisers/contacts${scope}`);
+}
+
+/** Смета поиска адресов рекламодателям по кредитам Hunter — до «найти». */
+export function fetchAdvertiserContactsBudget(sites: number): Promise<ContactsBudget> {
+  return request<ContactsBudget>(`/advertisers/contacts/budget?sites=${sites}`);
 }
 
 export function searchAdvertiserContacts(body: { limit: number }): Promise<ContactsQueued> {

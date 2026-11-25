@@ -147,6 +147,17 @@ class ContactLadder:
         Причина — для отчёта прохода (`search.SearchReport.paid_missing`)."""
         return self._paid.closed
 
+    def limit_paid(self, budget: int | None) -> None:
+        """Платная ступень спрашивает не больше `budget` раз за проход — кредиты Hunter, занятые
+        под него (`search._claim`); `None` — без счёта."""
+        self._paid.limit(budget)
+
+    @property
+    def paid_spent(self) -> bool:
+        """Проход выбрал занятые под него кредиты Hunter — дальше платная ступень не
+        спрашивала, домены — «кончилась квота» (`ProviderStep.spent`)."""
+        return self._paid.spent
+
     def _sequence(self) -> list[_Step]:
         """Порядок ступеней после MX.
 

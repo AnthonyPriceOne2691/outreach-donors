@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from backend.features.contacts import hunter_budget
 from backend.features.core.domain import Stage
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.runs.failures import is_permanent
@@ -52,13 +53,13 @@ def searched(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     seen: dict[str, list[Any]] = {"search": [], "engines": [], "remembered": []}
 
     async def search(_session: object, **kwargs: Any) -> SimpleNamespace:
-        seen["search"].append(kwargs)
+        seen["search"].append({**kwargs, "counted": hunter_budget.counting()})
         return SimpleNamespace(as_dict=lambda: {"walked": 0})
 
     async def followup(_session: object, **kwargs: Any) -> SimpleNamespace:
         # Рекламодатели — поиском с добором (`crawl/address_search.py`): очередь он строит сам.
         queue = AdvertiserContactRepository(_session)  # type: ignore[arg-type]
-        seen["search"].append({**kwargs, "queue": queue})
+        seen["search"].append({**kwargs, "queue": queue, "counted": hunter_budget.counting()})
         return SimpleNamespace(as_dict=lambda: {"walked": 0})
 
     def engine(dsn: str) -> _Engine:
@@ -87,12 +88,16 @@ class TestEachStageItsQueue:
         [call] = searched["search"]
         assert call["queue"] is None  # очередь доноров — умолчание `search_contacts`
         assert call["limit"] == 5
+        # Кредиты Hunter — из общего счёта (`contacts/hunter_budget.py`), 25.11.2026.
+        assert call["counted"] is True
 
     async def test_advertisers_go_by_their_own_queue(self, searched: dict[str, list[Any]]) -> None:
         await jobs._search_contacts(5, False, False, None, Stage.ADVERTISERS)
 
         [call] = searched["search"]
         assert isinstance(call["queue"], AdvertiserContactRepository)
+        assert call["counted"] is True
+        assert hunter_budget.counting() is False  # снаружи задачи счёт не открыт
 
     async def test_sales_are_refused_before_the_database(
         self, searched: dict[str, list[Any]]

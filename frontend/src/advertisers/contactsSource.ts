@@ -4,7 +4,11 @@
  * рекламодателей (29.10.2026): две копии разъехались бы на первой правке.
  */
 
-import { fetchAdvertiserContacts, searchAdvertiserContacts } from '../api/advertisers';
+import {
+  fetchAdvertiserContacts,
+  fetchAdvertiserContactsBudget,
+  searchAdvertiserContacts,
+} from '../api/advertisers';
 import type { LetterAudience } from '../api/letters';
 import type { ContactsSource } from '../donors/PendingContacts';
 
@@ -17,6 +21,7 @@ export const ADVERTISER_CONTACTS: ContactsSource = {
   // Обёрткой: запрос зовёт `fetchState` со своим контекстом, он ушёл бы аудиторией.
   fetchState: () => fetchAdvertiserContacts(),
   search: searchAdvertiserContacts,
+  budget: fetchAdvertiserContactsBudget,
   refresh: [PROMOTION_QUERY_KEY, ['letters']],
 };
 
@@ -27,6 +32,7 @@ function lettersContacts(audience: LetterAudience): ContactsSource {
     queryKey: [...ADVERTISER_CONTACTS.queryKey, audience],
     fetchState: () => fetchAdvertiserContacts(audience),
     search: searchAdvertiserContacts,
+    budget: fetchAdvertiserContactsBudget,
     refresh: [...ADVERTISER_CONTACTS.refresh, ADVERTISER_CONTACTS.queryKey],
   };
 }
