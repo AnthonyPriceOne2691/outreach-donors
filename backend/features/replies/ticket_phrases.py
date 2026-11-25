@@ -34,6 +34,11 @@ TICKET_RECEIPT: Table = {
         r"(?:request|ticket|case|enquiry|inquiry|message|e-?mail|query)\b",
         r"\byour\s+(?:case|ticket|request|reference)\s+(?:number|no\.?|id|#)\s+is\b",
         r"\b(?:please\s+)?rate\s+(?:our|the)\s+(?:support|service|customer\s+service|response|agent)\b",
+        # Проверка прода 25.11.2026: «We’ve created a new ticket (#48213)», «thank you for
+        # opening a new request» — служба заводит заявку сама.
+        r"\bwe(?:\s+have|['’]ve)\s+(?:created|opened|logged|registered)\s+a\s+(?:new\s+)?"
+        r"(?:support\s+)?(?:ticket|case|request)\b",
+        r"\bthank(?:s|\s+you)\s+for\s+opening\s+a\s+(?:new\s+)?(?:support\s+)?(?:ticket|case|request)\b",
     ),
     "de": (
         r"\bihre?\s+(?:anfrage|nachricht|e-?mail|ticket|meldung|support-?anfrage)\b[^.!?]{0,60}?"
@@ -116,8 +121,9 @@ TICKET_WORD: Table = {
 
 TICKET_RECEIPT_RE = compiled(TICKET_RECEIPT)
 
-#: Знак номера после слова заявки: «#», «№», «No.», «Nr.», «n°», «number», «номер».
-_NUMBER_SIGN = r"(?:#|№|n[°º]|no\.?|nr\.?|number|nummer|número|numero|numer|номер)"
+#: Знак номера после слова заявки: «#», «№», «No.», «Nr.», «n°», «ID», «number», «номер».
+#: «ID» — проверка прода 25.11.2026: «Your ticket ID is 48213-E» номером не считался.
+_NUMBER_SIGN = r"(?:#|№|n[°º]|no\.?|nr\.?|id|number|nummer|número|numero|numer|номер)"
 _TICKET_WORDS = "|".join(word for lang in LANGUAGES for word in TICKET_WORD[lang])
 
 #: Номер заявки — в теме или в тексте. Голое число номером не считается:
@@ -136,3 +142,112 @@ TICKET_NUMBER_RE = re.compile(
     r"(?!(?:19|20)\d\d\b)\d{3,}\b",
     re.I,
 )
+
+#: Служба обещает ответить позже — лицом службы: «our support team will respond shortly»,
+#: «a member of our Customer Service Team will…», «one of our support agents will assist you».
+#: Проверка прода 25.11.2026: среди ответов рекламодателей, ждавших человека, — такие
+#: подтверждения без номера заявки. Человек о себе так не пишет: он говорит «я», «мы» или
+#: «коллега», а не «команда поддержки». Решает только в коротком письме (`classify`): в
+#: длинном деловом ответе «наша служба поддержки поможет с интеграцией» — часть дела.
+SERVICE_PROMISE: Table = {
+    "en": (
+        r"\b(?:our|the|one\s+of\s+our|a\s+member\s+of\s+(?:our|the))\s+(?:customer\s+)?"
+        r"(?:support|service|care|help\s*desk|customer\s+service|customer\s+care)\s+"
+        r"(?:team|agents?|specialists?|representatives?|staff)\s+(?:will|shall|is\s+going\s+to)\b",
+    ),
+    "de": (
+        r"\b(?:unser|ein\s+mitarbeiter\s+unseres)\s+(?:support|kundenservice|kundendienst|service)"
+        r"(?:-?team)?s?\s+(?:wird|meldet\s+sich)\b",
+    ),
+    "fr": (
+        r"\b(?:notre|un\s+membre\s+de\s+notre)\s+(?:équipe\s+(?:support|du\s+support|du\s+service\s+client)"
+        r"|service\s+client|support)\s+(?:vous\s+)?(?:répondra|reviendra|contactera|recontactera)\b",
+    ),
+    "es": (
+        r"\b(?:nuestro|un\s+miembro\s+de\s+nuestro)\s+(?:equipo\s+de\s+(?:soporte|atención)"
+        r"|servicio\s+de\s+atención(?:\s+al\s+cliente)?|soporte)\s+(?:se\s+pondrá\s+en\s+contacto|"
+        r"(?:le|te)\s+(?:responderá|contactará))\b",
+    ),
+    "it": (
+        r"\b(?:il\s+nostro|un\s+membro\s+del\s+nostro)\s+(?:team\s+di\s+supporto|servizio\s+clienti|"
+        r"supporto)\s+(?:ti|la|vi)\s+(?:risponderà|contatterà|ricontatterà)\b",
+    ),
+    "pt": (
+        r"\b(?:nossa\s+equipe|nosso\s+suporte|nosso\s+atendimento)(?:\s+de\s+(?:suporte|atendimento))?\s+"
+        r"(?:entrará\s+em\s+contato|responderá|retornará)\b",
+    ),
+    "nl": (
+        r"\b(?:ons|een\s+medewerker\s+van\s+ons)\s+(?:supportteam|klantenservice|serviceteam|team)\s+"
+        r"(?:neemt|zal|reageert)\b",
+    ),
+    "pl": (
+        r"\bnasz\s+(?:zespół\s+(?:wsparcia|obsługi)|konsultant|dział\s+obsługi)\s+"
+        r"(?:odpowie|skontaktuje\s+się)\b",
+    ),
+    "ru": (
+        r"\b(?:наш[аи]?\s+)?(?:служба\s+поддержки|специалист[ыа]?\s+(?:службы\s+)?поддержки|"
+        r"оператор[ыа]?\s+поддержки)\s+(?:свяж(?:е|у)тся|ответ(?:и|я)т)\b",
+    ),
+}
+
+#: «Ответим вам как можно скорее» без лица службы — так пишет и человек, поэтому решает
+#: только вместе с фразой о приёме обращения (`TICKET_RECEIPT`) и только в коротком письме:
+#: «We've received your request and will get back to you as quickly as possible».
+ANSWER_LATER: Table = {
+    "en": (
+        r"\bwill\s+(?:get\s+back\s+to\s+you|respond(?:\s+to\s+you)?|reply(?:\s+to\s+you)?|"
+        r"be\s+in\s+touch|contact\s+you|assist\s+you)\b[^.!?]{0,60}?\b(?:as\s+soon\s+as\s+"
+        r"(?:possible|we\s+can)|shortly|as\s+quickly\s+as\s+possible|within\s+\d+|in\s+the\s+next\s+\d+)",
+    ),
+    "de": (
+        r"\b(?:melden\s+uns|antworten\s+ihnen|uns\s+(?:bei\s+ihnen\s+)?melden)\b[^.!?]{0,40}?"
+        r"\b(?:so\s+schnell\s+wie\s+möglich|schnellstmöglich|in\s+kürze|zeitnah|innerhalb\s+von\s+\d+)",
+    ),
+    "fr": (
+        r"\b(?:répondrons|reviendrons\s+vers\s+vous|recontacterons)\b[^.!?]{0,40}?"
+        r"\b(?:dans\s+les\s+(?:plus\s+)?brefs\s+délais|rapidement|sous\s+\d+|au\s+plus\s+vite|"
+        r"dès\s+que\s+possible)",
+    ),
+    "es": (
+        r"\b(?:responderemos|contactaremos)\b[^.!?]{0,40}?\b(?:lo\s+antes\s+posible|en\s+breve|"
+        r"a\s+la\s+mayor\s+brevedad|en\s+las\s+próximas\s+\d+)",
+    ),
+    "it": (
+        r"\b(?:risponderemo|ricontatteremo)\b[^.!?]{0,40}?\b(?:al\s+più\s+presto|a\s+breve|"
+        r"il\s+prima\s+possibile|entro\s+\d+)",
+    ),
+    "pt": (
+        r"\b(?:responderemos|retornaremos|entraremos\s+em\s+contato)\b[^.!?]{0,40}?"
+        r"\b(?:o\s+mais\s+(?:breve|rápido)\s+possível|em\s+breve|assim\s+que\s+possível|em\s+até\s+\d+)",
+    ),
+    "nl": (
+        r"\b(?:nemen|zullen)\b[^.!?]{0,30}?\b(?:zo\s+snel\s+mogelijk|spoedig|binnen\s+\d+)"
+        r"[^.!?]{0,30}?\bcontact\b",
+    ),
+    "pl": (
+        r"\b(?:odpowiemy|skontaktujemy\s+się)\b[^.!?]{0,40}?\b(?:najszybciej\s+jak|wkrótce|"
+        r"niezwłocznie|w\s+ciągu\s+\d+)",
+    ),
+    "ru": (
+        r"\b(?:ответим|свяжемся\s+с\s+вами)\b[^.!?]{0,40}?\b(?:в\s+ближайшее\s+время|"
+        r"как\s+можно\s+скорее|в\s+течение\s+\d+)",
+    ),
+}
+
+#: Оценка разговора в чате поддержки — письмо из одной строки: «Rate your conversation»
+#: (проверка прода 25.11.2026). Решает только в очень коротком письме (`classify`).
+CHAT_RATING: Table = {
+    "en": (r"\b(?:rate|review)\s+(?:your|this|the)\s+(?:conversation|chat|experience)\b",),
+    "de": (r"\bbewerten\s+sie\s+(?:dieses|das|ihr)\s+(?:gespräch|chat)\b",),
+    "fr": (r"\b(?:évaluez|notez)\s+(?:cette|votre)\s+(?:conversation|discussion)\b",),
+    "es": (r"\b(?:valora|califica|evalúa)\s+(?:esta|tu|su)\s+(?:conversación|chat)\b",),
+    "it": (r"\b(?:valuta|vota)\s+(?:questa|la\s+tua)\s+(?:conversazione|chat)\b",),
+    "pt": (r"\b(?:avalie|classifique)\s+(?:esta|sua|a)\s+(?:conversa|conversação)\b",),
+    "nl": (r"\bbeoordeel\s+(?:dit|uw|je)\s+(?:gesprek|chat)\b",),
+    "pl": (r"\boceń\s+(?:tę|swoją)\s+(?:rozmowę|konwersację)\b",),
+    "ru": (r"\bоцените\s+(?:этот\s+|наш\s+)?(?:диалог|разговор|чат)\b",),
+}
+
+SERVICE_PROMISE_RE = compiled(SERVICE_PROMISE)
+ANSWER_LATER_RE = compiled(ANSWER_LATER)
+CHAT_RATING_RE = compiled(CHAT_RATING)
