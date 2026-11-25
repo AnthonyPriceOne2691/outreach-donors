@@ -40,10 +40,38 @@ class ContactsQueued(BaseModel):
     pending: int
 
 
+class ContactsBudget(BaseModel):
+    """Хватит ли кредитов Hunter на поиск стольким сайтам (`api/contacts/budget.py`).
+
+    `paid` — платная ступень включена; без неё кредиты не нужны и хватает всем. `affordable` —
+    скольким сайтам хватит свободного по смете; `unknown` — почему остаток не узнать. Части
+    свободного — чтобы экран сказал, из чего оно сложилось; `live` — живой ответ Hunter, а не
+    снимок сторожа на `asked_at`."""
+
+    sites: int
+    paid: bool
+    needed: int = 0
+    free: int = 0
+    affordable: int
+    enough: bool
+    account_left: int | None = None
+    reserve: int | None = None
+    checks_hold: int | None = None
+    held: int | None = None
+    asked_at: datetime | None = None
+    live: bool | None = None
+    unknown: str | None = None
+
+
+#: Сколько сайтов берёт одно нажатие «найти» — всех ждущих, но не больше этого. Задаче такого
+#: прохода очередь даёт время по числу сайтов (`shared/queue.contacts_job_timeout`).
+SEARCH_ALL_MAX = 10_000
+
+
 class SearchBody(BaseModel):
     """Чего хотим от поиска."""
 
-    limit: int = Field(default=100, ge=1, le=1000)
+    limit: int = Field(default=100, ge=1, le=SEARCH_ALL_MAX)
     #: Ступень браузера: секунды на страницу, включается отдельно.
     use_browser: bool = False
 

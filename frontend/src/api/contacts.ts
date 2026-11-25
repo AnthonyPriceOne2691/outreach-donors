@@ -13,6 +13,30 @@ export function fetchContactsState(): Promise<ContactsState> {
   return request<ContactsState>('/contacts');
 }
 
+/** Хватит ли кредитов Hunter на поиск стольким сайтам (`api/contacts/budget.py`). `paid` —
+ *  платная ступень включена: без неё кредиты не нужны. `affordable` — скольким сайтам хватит
+ *  свободного; `unknown` — почему остаток не узнать; `live: false` — снимок на `asked_at`. */
+export interface ContactsBudget {
+  sites: number;
+  paid: boolean;
+  needed: number;
+  free: number;
+  affordable: number;
+  enough: boolean;
+  account_left: number | null;
+  reserve: number | null;
+  checks_hold: number | null;
+  held: number | null;
+  asked_at: string | null;
+  live: boolean | null;
+  unknown: string | null;
+}
+
+/** Смета поиска донорам по кредитам Hunter — до «найти». */
+export function fetchContactsBudget(sites: number): Promise<ContactsBudget> {
+  return request<ContactsBudget>(`/contacts/budget?sites=${sites}`);
+}
+
 export function searchContacts(body: {
   limit?: number;
   use_browser?: boolean;

@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from backend.config import storage
 from backend.config.startup_checks import check_storage
+from backend.features.contacts import hunter_budget
 from backend.features.contacts.search import SearchReport, search_contacts
 from backend.features.core.domain import Stage
 from backend.features.core.usage import LlmCapExceededError
@@ -243,8 +244,11 @@ async def _search_contacts(
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
+        # Кредиты Hunter — из общего счёта: проход занимает долю и тратит только её
+        # (`contacts/hunter_budget.py`, 25.11.2026); сбор базы продаж сюда не ходит.
         async with factory() as session:
-            report = await search(session)
+            with hunter_budget.shared():
+                report = await search(session)
             await session.commit()
             return report.as_dict()
     finally:

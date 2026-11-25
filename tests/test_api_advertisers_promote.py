@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from backend.api.advertisers import routes
+from backend.features.contacts import hunter_budget
 from backend.features.core.domain import (
     AuditAction,
     ContactSource,
@@ -30,7 +33,12 @@ from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.crawl.judge_mark import marker_of
-from backend.shared.queue import ADVERTISER_CONTACTS_JOB_KEY, CONTACTS_JOB
+from backend.shared.queue import (
+    ADVERTISER_CONTACTS_JOB_KEY,
+    CONTACTS_JOB,
+    CONTACTS_SECONDS_PER_HOST,
+    JOB_TIMEOUT,
+)
 from backend.workers import jobs
 from httpx import AsyncClient
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -49,14 +57,45 @@ class FakeQueue:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
+        #: Параметры постановки у каждого вызова — потолок задачи, повторы.
+        self.options: list[dict[str, Any]] = []
         self.remembered: list[tuple[str, str]] = []
 
-    def enqueue(self, job: str, *args: Any, **_: Any) -> object:
+    def enqueue(self, job: str, *args: Any, **options: Any) -> object:
         self.calls.append((job, args))
+        self.options.append(options)
         return type("Job", (), {"id": "job-адреса"})()
 
     def remember(self, job_id: str, *, key: str) -> None:
         self.remembered.append((job_id, key))
+
+
+def _paid_with_free(monkeypatch: pytest.MonkeyPatch, *, free: int) -> None:
+    """Платная ступень включена, а у Hunter свободно `free` кредитов (смета — подделкой)."""
+    monkeypatch.setattr("backend.api.contacts.budget.cfg.PAID_SEARCH_ENABLED", True)
+    monkeypatch.setattr("backend.api.contacts.budget.cfg.HUNTER_API_KEY", "ключ")
+    counted = hunter_budget.Budget(
+        account_left=free + 2000,
+        asked_at=datetime.now(UTC),
+        live=True,
+        reserve=2000,
+        checks_hold=0,
+        held=0,
+    )
+
+    async def budget(*_a: object, **_kw: object) -> hunter_budget.Budget:
+        return counted
+
+    monkeypatch.setattr("backend.api.contacts.budget.hunter_budget.budget", budget)
+
+
+def _waiting(monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    """Адреса ждут `count` рекламодателей — без строк в базе."""
+
+    async def pending_count(_self: object) -> int:
+        return count
+
+    monkeypatch.setattr(routes.AdvertiserContactRepository, "pending_count", pending_count)
 
 
 @pytest.fixture
@@ -402,18 +441,107 @@ class TestAddressSearch:
         assert body["running"] is False
         assert body["workers"] == 1
 
-    async def test_search_is_capped_and_goes_by_advertisers(
-        self, client: AsyncClient, operator_token: str, queue: FakeQueue, session: AsyncSession
+    async def test_search_takes_everyone_asked_and_goes_by_advertisers(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """«найти» просит всех ждущих (25.11.2026): проход берёт их всех, а не тысячу, и задаче —
+        время по числу сайтов (`contacts_job_timeout`)."""
+        _waiting(monkeypatch, 3000)
+
+        response = await client.post(
+            "/api/advertisers/contacts", json={"limit": 2500}, headers=bearer(operator_token)
+        )
+
+        assert response.json() == {"job_id": "job-адреса", "pending": 3000}
+        _, args = queue.calls[0]
+        bound = inspect.signature(jobs.find_contacts).bind(*args)
+        assert bound.arguments["stage"] == Stage.ADVERTISERS.value
+        assert bound.arguments["limit"] == 2500
+        assert queue.options[0]["job_timeout"] == 2500 * CONTACTS_SECONDS_PER_HOST
+
+    async def test_search_takes_no_more_sites_than_are_waiting(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Просят больше, чем ждут: задача берёт ждущих — столько, сколько проверено по кредитам, —
+        и время ей по ним, а не по просьбе (стенд 25.11.2026: 10 000 при 1 200 ждущих — 11 часов)."""
+        _waiting(monkeypatch, 1200)
+
+        await client.post(
+            "/api/advertisers/contacts", json={"limit": 10_000}, headers=bearer(operator_token)
+        )
+
+        _, args = queue.calls[0]
+        assert inspect.signature(jobs.find_contacts).bind(*args).arguments["limit"] == 1200
+        assert queue.options[0]["job_timeout"] == 1200 * CONTACTS_SECONDS_PER_HOST
+
+    async def test_search_the_service_starts_itself_stays_within_a_thousand(
+        self, queue: FakeQueue
+    ) -> None:
+        """Поиск после перевода и «пишем» ставит сам сервис — у него прежний потолок прохода."""
+        routes._search(5000)
+
+        _, args = queue.calls[0]
+        assert inspect.signature(jobs.find_contacts).bind(*args).arguments["limit"] == 1000
+        assert queue.options[0]["job_timeout"] == max(JOB_TIMEOUT, 1000 * CONTACTS_SECONDS_PER_HOST)
+
+    async def test_more_than_the_ceiling_is_refused(
+        self, client: AsyncClient, operator_token: str, queue: FakeQueue
+    ) -> None:
+        response = await client.post(
+            "/api/advertisers/contacts", json={"limit": 10_001}, headers=bearer(operator_token)
+        )
+
+        assert response.status_code == 422
+        assert queue.calls == []
+
+    async def test_budget_without_the_paid_step_lets_everyone_go(
+        self, client: AsyncClient, operator_token: str, session: AsyncSession
     ) -> None:
         await _advertiser(session, "waiting.example")
         await session.commit()
 
-        response = await client.post(
+        body = (
+            await client.get("/api/advertisers/contacts/budget", headers=bearer(operator_token))
+        ).json()
+
+        assert (body["sites"], body["paid"], body["enough"], body["affordable"]) == (
+            1,
+            False,
+            True,
+            1,
+        )
+
+    async def test_short_of_credits_the_budget_proposes_and_the_search_refuses(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Кредитов на всех не хватает: смета называет, скольким хватит, а нажатие — отказ 409
+        словами и без задачи в очереди."""
+        _paid_with_free(monkeypatch, free=200)
+        _waiting(monkeypatch, 1000)
+
+        body = (
+            await client.get("/api/advertisers/contacts/budget", headers=bearer(operator_token))
+        ).json()
+        refused = await client.post(
             "/api/advertisers/contacts", json={"limit": 1000}, headers=bearer(operator_token)
         )
 
-        assert response.json() == {"job_id": "job-адреса", "pending": 1}
-        _, args = queue.calls[0]
-        bound = inspect.signature(jobs.find_contacts).bind(*args)
-        assert bound.arguments["stage"] == Stage.ADVERTISERS.value
-        assert bound.arguments["limit"] == 1000
+        assert (body["sites"], body["needed"], body["free"]) == (1000, 500, 200)
+        assert (body["enough"], body["affordable"]) == (False, 400)
+        assert refused.status_code == 409
+        assert refused.json()["detail"] == (
+            "Кредитов Hunter хватит примерно на 400 сайтов из 1\u00a0000: свободно 200."
+        )
+        assert queue.calls == []

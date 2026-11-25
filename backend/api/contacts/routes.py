@@ -31,9 +31,11 @@ import logging
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.contacts import deeper, form_letter
+from backend.api.contacts import budget, deeper, form_letter
 from backend.api.contacts.schemas import (
+    SEARCH_ALL_MAX,
     AddressBody,
+    ContactsBudget,
     ContactsQueued,
     ContactsState,
     FilledBody,
@@ -65,6 +67,7 @@ from backend.shared.queue import (
     CONTACTS_JOB,
     CONTACTS_QUEUE_NAME,
     contacts_job_id,
+    contacts_job_timeout,
     contacts_queue,
     remember_contacts_job,
     with_retries,
@@ -95,22 +98,44 @@ def _queue_state(pending: int) -> ContactsState:
     return search_state(pending, contacts_job_id(), workers_alive(queue=CONTACTS_QUEUE_NAME))
 
 
+@router.get("/budget", response_model=ContactsBudget, summary="Хватит ли кредитов на поиск")
+async def search_budget(
+    sites: int | None = Query(default=None, ge=1, le=SEARCH_ALL_MAX),
+    _: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> ContactsBudget:
+    """Смета поиска по кредитам Hunter — до нажатия «найти» (`budget.py`); без числа — всем
+    ждущим."""
+    wanted = sites if sites is not None else await ContactRepository(session).pending_count()
+    return await budget.estimate(session, wanted)
+
+
 @router.post("", response_model=ContactsQueued, summary="Найти контакты")
 async def search(
     body: SearchBody,
     author: UserModel = _runner,
     session: AsyncSession = Depends(db_session),
 ) -> ContactsQueued:
-    """Поставить поиск контактов в очередь."""
+    """Поставить поиск контактов в очередь; кредитов Hunter не хватает — отказ 409 (`budget.py`).
+    Задача берёт столько сайтов, сколько проверено по кредитам, — и потолок времени по ним же."""
     pending = await ContactRepository(session).pending_count()
-    job_id = await asyncio.to_thread(_queue_search, body.limit, body.use_browser)
+    sites = min(body.limit, pending)
+    await budget.checked(session, sites)
+    job_id = await asyncio.to_thread(_queue_search, sites, body.use_browser)
     logger.info("контакты: %s поставил поиск, ждёт %s доноров", author.email, pending)
     return ContactsQueued(job_id=job_id, pending=pending)
 
 
 def _queue_search(limit: int, use_browser: bool) -> str:
     """Поставить общий поиск и запомнить его номер — в пуле потоков (`_queue_state`)."""
-    job = contacts_queue().enqueue(CONTACTS_JOB, limit, use_browser, False, **with_retries())
+    job = contacts_queue().enqueue(
+        CONTACTS_JOB,
+        limit,
+        use_browser,
+        False,
+        job_timeout=contacts_job_timeout(limit),
+        **with_retries(),
+    )
     remember_contacts_job(str(job.id))
     return str(job.id)
 

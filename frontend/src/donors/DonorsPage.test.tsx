@@ -387,6 +387,24 @@ describe('доноры: таблица', () => {
 describe('ждут адреса', () => {
   it('общий поиск — строкой в шапке таблицы, и уходит на сервер', async () => {
     const recorded = await openDonors({
+      // Смета кредитов до «найти» (`SearchBudget`): платная ступень выключена — поиск сразу.
+      'GET /api/contacts/budget?sites=3': {
+        body: {
+          sites: 3,
+          paid: false,
+          needed: 0,
+          free: 0,
+          affordable: 3,
+          enough: true,
+          account_left: null,
+          reserve: null,
+          checks_hold: null,
+          held: null,
+          asked_at: null,
+          live: null,
+          unknown: null,
+        },
+      },
       'POST /api/contacts': { body: { job_id: 'job-1', pending: 3 } },
       'GET /api/jobs/job-1': {
         body: {

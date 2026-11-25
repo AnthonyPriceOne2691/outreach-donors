@@ -119,7 +119,8 @@ class TestContactsFromTheScreen:
         )
 
         assert response.status_code == 200, response.text
-        assert queue.calls == [("backend.workers.jobs.find_contacts", (50, False, False))]
+        # Ждёт один — задача берёт одного, хоть просили 50: столько проверено по кредитам Hunter.
+        assert queue.calls == [("backend.workers.jobs.find_contacts", (1, False, False))]
 
     async def test_without_the_right_nobody_searches(
         self,

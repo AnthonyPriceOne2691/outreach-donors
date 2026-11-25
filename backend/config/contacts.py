@@ -74,6 +74,12 @@ class _Contacts(DomainSettings):
     # Ниже этой уверенности адрес платного сервиса не берём: дешевле не писать,
     # чем писать по выдуманному адресу и ловить отказ доставки.
     hunter_min_confidence: int = Field(default=70, validation_alias="CONTACTS_HUNTER_MIN_CONF")
+    # Неприкосновенный остаток кредитов Hunter (25.11.2026): платный поиск адресов доноров и
+    # рекламодателей не опускает остаток учётки ниже него. Учётка общая с проверкой адресов перед
+    # письмами и с соседней системой, а «найти» ставит поиск всем ждущим разом — тысячам сайтов.
+    # Ноль — тратить до отказа сервиса, как до правки. Сбор базы продаж запас не держит: у него
+    # своя смета (`sales/segment_paid.py`).
+    paid_reserve: int = Field(default=2000, ge=0, validation_alias="CONTACTS_PAID_RESERVE")
 
     # --- Проверка адреса перед первым письмом (11.11.2026, `contacts/address_check.py`) ---
     # Рубильник по этапам, включён у обоих: найденный адрес шёл в письмо без проверки, и отказ
@@ -136,6 +142,7 @@ PAID_SEARCH_ENABLED: bool = _s.paid_search_enabled
 HUNTER_API_KEY: str = _s.hunter_api_key.strip()  # хвостовой пробел из .env
 HUNTER_TIMEOUT_SEC: float = _s.hunter_timeout_sec
 HUNTER_MIN_CONFIDENCE: int = _s.hunter_min_confidence
+PAID_RESERVE: int = _s.paid_reserve
 #: Этап (значение `Stage`) → проверяется ли адрес перед первым письмом. Этапа нет — нет и проверки.
 VERIFY_BEFORE_LETTER: dict[str, bool] = {
     "donors": _s.verify_donors,

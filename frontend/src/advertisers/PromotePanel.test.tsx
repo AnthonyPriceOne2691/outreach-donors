@@ -111,10 +111,27 @@ describe('к письму', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('«найти» ищет адреса рекламодателям, а не донорам', async () => {
+  it('«найти» спрашивает смету кредитов и ищет адреса всем ждущим рекламодателям', async () => {
     const recorded = open({
       'GET /api/advertisers/contacts': {
         body: { pending: 3, running: false, job_id: null, last: null, workers: 1 },
+      },
+      'GET /api/advertisers/contacts/budget?sites=3': {
+        body: {
+          sites: 3,
+          paid: true,
+          needed: 2,
+          free: 500,
+          affordable: 3,
+          enough: true,
+          account_left: 4000,
+          reserve: 2000,
+          checks_hold: 1500,
+          held: 0,
+          asked_at: '2026-11-25T10:00:00Z',
+          live: true,
+          unknown: null,
+        },
       },
       'POST /api/advertisers/contacts': { body: { job_id: 'job-7', pending: 3 } },
       'GET /api/jobs/job-7': { body: SEARCHING },
@@ -122,15 +139,17 @@ describe('к письму', () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'найти адреса всем ждущим' }));
+    expect(await screen.findByText(/Найти адреса 3 сайтам\?/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Найти 3' }));
 
     await waitFor(() =>
       expect(
         recorded.calls.find(
           (call) => call.path === '/api/advertisers/contacts' && call.method === 'POST',
         )?.body,
-      ).toEqual({ limit: 100 }),
+      ).toEqual({ limit: 3 }),
     );
-    expect(recorded.calls.some((call) => call.path === '/api/contacts')).toBe(false);
+    expect(recorded.calls.some((call) => call.path.startsWith('/api/contacts'))).toBe(false);
   });
 });
 
