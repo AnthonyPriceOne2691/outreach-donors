@@ -470,6 +470,7 @@ async def _claim(
             session, http, token=token, sites=sites, ttl_sec=contacts_job_timeout(sites)
         )
     except hunter_budget.BudgetBusyError as exc:
+        logger.warning("контакты: кредиты Hunter под проход не заняты — %s", exc)
         missing = PaidUnavailable(ContactStatus.ERROR, str(exc))
         _unavailable(report, missing, missing.reason)
         return missing, None

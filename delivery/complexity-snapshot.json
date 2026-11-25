@@ -1347,7 +1347,7 @@
       "worst": "refusal_of:135"
     },
     "backend/features/contacts/search.py": {
-      "lines": 494,
+      "lines": 495,
       "complexity": 16,
       "worst": "search_contacts:349"
     },
