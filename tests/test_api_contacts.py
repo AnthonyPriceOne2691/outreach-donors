@@ -264,18 +264,29 @@ class TestOneDonor:
         [said] = [record for record in caplog.records if record.name == api_errors.__name__]
         assert vars(said)["error"] == refused
 
-    async def test_general_search_takes_everyone_asked_with_time_by_its_sites(
-        self, client: AsyncClient, operator_token: str, queue: FakeQueue
+    async def test_general_search_takes_everyone_waiting_with_time_by_its_sites(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """«найти» у доноров — та же строка, что у рекламодателей (25.11.2026): всех ждущих."""
+        """«найти» у доноров — та же строка, что у рекламодателей (25.11.2026): всех ждущих, больше
+        прежней тысячи, но не больше, чем ждут, — и время задаче по ним, а не по просьбе."""
+
+        async def waiting(_self: object) -> int:
+            return 1200
+
+        monkeypatch.setattr("backend.api.contacts.routes.ContactRepository.pending_count", waiting)
+
         response = await client.post(
-            "/api/contacts", json={"limit": 2500}, headers=bearer(operator_token)
+            "/api/contacts", json={"limit": 10_000}, headers=bearer(operator_token)
         )
 
         assert response.status_code == 200
         _, args = queue.calls[0]
-        assert inspect.signature(jobs.find_contacts).bind(*args).arguments["limit"] == 2500
-        assert queue.options[0]["job_timeout"] == 2500 * CONTACTS_SECONDS_PER_HOST
+        assert inspect.signature(jobs.find_contacts).bind(*args).arguments["limit"] == 1200
+        assert queue.options[0]["job_timeout"] == 1200 * CONTACTS_SECONDS_PER_HOST
 
     async def test_budget_without_the_paid_step_lets_everyone_go(
         self, client: AsyncClient, operator_token: str

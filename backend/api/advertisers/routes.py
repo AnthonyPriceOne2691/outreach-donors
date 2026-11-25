@@ -289,10 +289,12 @@ async def search_contacts(
 ) -> ContactsQueued:
     """Поставить поиск адресов тем рекламодателям, кому он нужен: кнопка просит всех ждущих, и
     проход берёт их всех — до `SEARCH_ALL_MAX`, а не до потолка прохода, который ставит сервис.
-    Кредитов Hunter не хватает — отказ 409 словами, скольким сайтам хватит."""
+    Кредитов Hunter не хватает — отказ 409 словами, скольким сайтам хватит. Задача берёт столько
+    сайтов, сколько проверено по кредитам, — и потолок времени по ним же."""
     pending = await AdvertiserContactRepository(session).pending_count()
-    await budget.checked(session, min(body.limit, pending))
-    job_id = await asyncio.to_thread(_search, body.limit, ceiling=SEARCH_ALL_MAX)
+    sites = min(body.limit, pending)
+    await budget.checked(session, sites)
+    job_id = await asyncio.to_thread(_search, sites, ceiling=SEARCH_ALL_MAX)
     logger.info("рекламодатели: %s поставил поиск адресов, ждут %s", author.email, pending)
     return ContactsQueued(job_id=job_id, pending=pending)
 

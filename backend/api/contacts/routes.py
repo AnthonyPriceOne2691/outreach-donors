@@ -116,10 +116,12 @@ async def search(
     author: UserModel = _runner,
     session: AsyncSession = Depends(db_session),
 ) -> ContactsQueued:
-    """Поставить поиск контактов в очередь; кредитов Hunter не хватает — отказ 409 (`budget.py`)."""
+    """Поставить поиск контактов в очередь; кредитов Hunter не хватает — отказ 409 (`budget.py`).
+    Задача берёт столько сайтов, сколько проверено по кредитам, — и потолок времени по ним же."""
     pending = await ContactRepository(session).pending_count()
-    await budget.checked(session, min(body.limit, pending))
-    job_id = await asyncio.to_thread(_queue_search, body.limit, body.use_browser)
+    sites = min(body.limit, pending)
+    await budget.checked(session, sites)
+    job_id = await asyncio.to_thread(_queue_search, sites, body.use_browser)
     logger.info("контакты: %s поставил поиск, ждёт %s доноров", author.email, pending)
     return ContactsQueued(job_id=job_id, pending=pending)
 

@@ -16,22 +16,22 @@ import { renderWith } from '../test/render';
 import { SEARCH_ALL_MAX, SearchBudget } from './SearchBudget';
 
 const ENOUGH: ContactsBudget = {
-  sites: 2319,
+  sites: 2001,
   paid: true,
-  needed: 1160,
-  free: 4554,
-  affordable: 2319,
+  needed: 1001,
+  free: 5500,
+  affordable: 2001,
   enough: true,
-  account_left: 8284,
+  account_left: 9000,
   reserve: 2000,
-  checks_hold: 1730,
+  checks_hold: 1500,
   held: 0,
   asked_at: '2026-11-25T10:00:00Z',
   live: true,
   unknown: null,
 };
 
-function open(budget: ContactsBudget, pending = 2319) {
+function open(budget: ContactsBudget, pending = 2001) {
   const ask = vi.fn(() => Promise.resolve(budget));
   const onStart = vi.fn();
   renderWith(<SearchBudget pending={pending} ask={ask} busy={false} onStart={onStart} />);
@@ -50,19 +50,19 @@ describe('«найти» со сметой кредитов', () => {
     const user = await press();
 
     // Разряды — неразрывным пробелом; поиск текста схлопывает его в обычный: в шаблоне — `\s`.
-    expect(await screen.findByText(/Найти адреса 2\s319 сайтам\?/)).toBeInTheDocument();
-    expect(screen.getByText(/свободно 4\s554 кредитов/)).toBeInTheDocument();
+    expect(await screen.findByText(/Найти адреса 2\s001 сайтам\?/)).toBeInTheDocument();
+    expect(screen.getByText(/свободно 5\s500 кредитов/)).toBeInTheDocument();
     expect(screen.getByText(/запас 2\s000, проверка адресов до конца месяца/)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /^Найти 2\s319$/ }));
+    await user.click(screen.getByRole('button', { name: /^Найти 2\s001$/ }));
 
-    expect(ask).toHaveBeenCalledWith(2319);
-    expect(onStart).toHaveBeenCalledWith(2319);
+    expect(ask).toHaveBeenCalledWith(2001);
+    expect(onStart).toHaveBeenCalledWith(2001);
   });
 
   it('не хватает — называет, скольким сайтам хватит, и ищет ровно им', async () => {
     const { onStart } = open({
       ...ENOUGH,
-      needed: 1160,
+      needed: 1001,
       free: 300,
       affordable: 600,
       enough: false,
@@ -71,7 +71,7 @@ describe('«найти» со сметой кредитов', () => {
 
     expect(
       await screen.findByText(
-        /^Кредитов Hunter хватит примерно на 600 сайтов из 2\s319: свободно 300\.$/,
+        /^Кредитов Hunter хватит примерно на 600 сайтов из 2\s001: свободно 300\.$/,
       ),
     ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Найти 600' }));
@@ -113,7 +113,7 @@ describe('«найти» со сметой кредитов', () => {
     const { onStart } = open({ ...ENOUGH, paid: false });
     await press();
 
-    await waitFor(() => expect(onStart).toHaveBeenCalledWith(2319));
+    await waitFor(() => expect(onStart).toHaveBeenCalledWith(2001));
     expect(screen.queryByText(/Найти адреса/)).not.toBeInTheDocument();
   });
 

@@ -42,13 +42,13 @@ def _counter(remaining: str) -> AccountCounter:
     return AccountCounter(used=Decimal(10_000) - left, available=Decimal(10_000), remaining=left)
 
 
-def _account(credits: str | None = "8284", searches: str = "8284") -> HunterAccount:
+def _account(credits: str | None = "9000", searches: str = "9000") -> HunterAccount:
     return HunterAccount(
         plan="Growth",
         reset_on=date(2026, 11, 25),
         credits=None if credits is None else _counter(credits),
         searches=_counter(searches),
-        verifications=_counter("16568"),
+        verifications=_counter("18000"),
     )
 
 
@@ -84,8 +84,8 @@ def account(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Hunter, потолок проверок и снимок сторожа подменены; запас — 2000."""
     state: dict[str, Any] = {
         "live": _account(),
-        "cap": 5000,
-        "spent": 1539,
+        "cap": 4000,
+        "spent": 1000,
         "snapshot": None,
     }
 
@@ -117,7 +117,7 @@ def account(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
 class TestEstimate:
     async def test_needed_and_affordable_by_half_a_request_per_site(self) -> None:
-        assert hunter_budget.needed(2319) == 1160
+        assert hunter_budget.needed(2001) == 1001
         assert hunter_budget.affordable(300) == 600
         assert hunter_budget.needed(0) == 0
 
@@ -135,12 +135,12 @@ class TestEstimate:
         counted = await hunter_budget.budget(object(), object(), redis=redis)  # type: ignore[arg-type]
 
         assert isinstance(counted, hunter_budget.Budget)
-        assert counted.account_left == 8284
+        assert counted.account_left == 9000
         assert counted.live is True
         assert counted.reserve == 2000
-        assert counted.checks_hold == 1731  # (5000 − 1539) × 0,5, вверх
+        assert counted.checks_hold == 1500  # (4000 − 1000) × 0,5, вверх
         assert counted.held == 100
-        assert counted.free == 8284 - 2000 - 1731 - 100
+        assert counted.free == 9000 - 2000 - 1500 - 100
 
     async def test_plan_without_shared_credits_counts_searches_and_holds_no_checks(
         self, account: dict[str, Any]
@@ -165,14 +165,14 @@ class TestEstimate:
         self, account: dict[str, Any]
     ) -> None:
         account["live"] = ProviderError("сеть: таймаут")
-        account["snapshot"] = AccountSnapshot(account=_account(credits="5000"), asked_at=ASKED)
+        account["snapshot"] = AccountSnapshot(account=_account(credits="6000"), asked_at=ASKED)
 
         counted = await hunter_budget.budget(object(), object(), redis=FakeRedis())  # type: ignore[arg-type]
 
         assert isinstance(counted, hunter_budget.Budget)
         assert counted.live is False
         assert counted.asked_at == ASKED
-        assert counted.account_left == 5000
+        assert counted.account_left == 6000
 
     async def test_nothing_known_says_why(self, account: dict[str, Any]) -> None:
         account["live"] = ProviderError("сеть: таймаут")
@@ -191,7 +191,9 @@ class TestEstimate:
 
 
 class TestClaim:
-    async def test_takes_what_the_pass_needs_and_holds_it(self, account: dict[str, Any]) -> None:
+    async def test_takes_a_request_per_site_and_holds_it(self, account: dict[str, Any]) -> None:
+        """Свободного вдоволь — доля по запросу на сайт, а не по смете: там, где адрес прячут
+        почти все, доля по смете оборвала бы проход на середине (стенд 25.11.2026)."""
         redis = FakeRedis()
 
         taken, counted = await hunter_budget.claim(
@@ -203,13 +205,29 @@ class TestClaim:
             redis=redis,  # type: ignore[arg-type]
         )
 
-        assert taken == 50
+        assert taken == 100
         assert isinstance(counted, hunter_budget.Budget)
-        assert redis.hashes[hunter_budget.HOLDS_KEY]["job-7:ab"].startswith("50|")
+        assert redis.hashes[hunter_budget.HOLDS_KEY]["job-7:ab"].startswith("100|")
         assert "outreach:hunter:holds:lock" not in redis.keys  # замок снят
 
+    async def test_takes_more_than_the_estimate_while_free_allows(
+        self, account: dict[str, Any]
+    ) -> None:
+        account["live"] = _account(credits="3570")  # свободно: 3570 − 2000 − 1500 = 70
+
+        taken, _ = await hunter_budget.claim(
+            object(),
+            object(),
+            token="t",
+            sites=100,
+            ttl_sec=600,
+            redis=FakeRedis(),  # type: ignore[arg-type]
+        )
+
+        assert (hunter_budget.needed(100), taken) == (50, 70)
+
     async def test_takes_only_what_is_free(self, account: dict[str, Any]) -> None:
-        account["live"] = _account(credits="3741")  # свободно: 3741 − 2000 − 1731 = 10
+        account["live"] = _account(credits="3510")  # свободно: 3510 − 2000 − 1500 = 10
 
         taken, _ = await hunter_budget.claim(
             object(),
@@ -352,7 +370,7 @@ class TestPassClaims:
         assert got is provider
         assert budget == 20
         assert len(released) == 1
-        assert report.notes == ["Кредиты Hunter: проходу занято 20 из свободных 7000."]
+        assert report.notes == ["Кредиты Hunter: проходу занято 20 из свободных 7\u00a0000."]
 
     async def test_nothing_free_means_the_step_waits_with_its_reason(
         self, monkeypatch: pytest.MonkeyPatch
@@ -371,7 +389,7 @@ class TestPassClaims:
         assert isinstance(got, PaidUnavailable)
         assert got.status is ContactStatus.NO_QUOTA
         assert budget is None
-        assert "свободных кредитов Hunter нет: на учётке 3000" in report.notes[0]
+        assert "свободных кредитов Hunter нет: на учётке 3\u00a0000," in report.notes[0]
         assert report.paid_missing is got
 
     async def test_lock_not_given_is_a_search_error_retried_later(

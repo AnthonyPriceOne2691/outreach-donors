@@ -68,6 +68,7 @@ from backend.features.contacts.sweep_trace import TracedRenderer, current_silenc
 from backend.features.core import usage
 from backend.features.core.domain import ContactStatus, Stage
 from backend.shared.net.url_guard import guarded_client
+from backend.shared.numbers import spaced
 from backend.shared.queue import contacts_job_timeout
 
 logger = logging.getLogger(__name__)
@@ -477,7 +478,9 @@ async def _claim(
     if taken > 0:
         stack.push_async_callback(hunter_budget.release, token)
         free = counted.free if isinstance(counted, hunter_budget.Budget) else taken
-        report.notes.append(f"Кредиты Hunter: проходу занято {taken} из свободных {free}.")
+        report.notes.append(
+            f"Кредиты Hunter: проходу занято {spaced(taken)} из свободных {spaced(free)}."
+        )
         return provider, taken
     said = counted if isinstance(counted, str) else _no_credits(counted)
     missing = PaidUnavailable(ContactStatus.NO_QUOTA, said)
@@ -488,7 +491,7 @@ async def _claim(
 def _no_credits(counted: hunter_budget.Budget) -> str:
     """Свободных кредитов нет — из чего это сложилось."""
     return (
-        f"свободных кредитов Hunter нет: на учётке {counted.account_left}, неприкосновенный "
-        f"запас {counted.reserve}, под проверку адресов до конца месяца {counted.checks_hold}, "
-        f"держат идущие поиски {counted.held}"
+        f"свободных кредитов Hunter нет: на учётке {spaced(counted.account_left)}, "
+        f"неприкосновенный запас {spaced(counted.reserve)}, под проверку адресов до конца "
+        f"месяца {spaced(counted.checks_hold)}, держат идущие поиски {spaced(counted.held)}"
     )

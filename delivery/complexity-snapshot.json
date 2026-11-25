@@ -72,7 +72,7 @@
       "worst": "accepted:138"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 439,
+      "lines": 441,
       "complexity": 5,
       "worst": "decide:159"
     },
@@ -152,9 +152,9 @@
       "worst": "reach_fields:41"
     },
     "backend/api/contacts/routes.py": {
-      "lines": 314,
+      "lines": 316,
       "complexity": 3,
-      "worst": "_donor:172"
+      "worst": "_donor:174"
     },
     "backend/api/contacts/schemas.py": {
       "lines": 242,
@@ -1277,9 +1277,9 @@
       "worst": "_columns:49"
     },
     "backend/features/contacts/hunter_budget.py": {
-      "lines": 235,
+      "lines": 240,
       "complexity": 6,
-      "worst": "held:177"
+      "worst": "held:182"
     },
     "backend/features/contacts/known_addresses.py": {
       "lines": 67,
@@ -1347,9 +1347,9 @@
       "worst": "refusal_of:135"
     },
     "backend/features/contacts/search.py": {
-      "lines": 495,
+      "lines": 498,
       "complexity": 16,
-      "worst": "search_contacts:349"
+      "worst": "search_contacts:350"
     },
     "backend/features/contacts/section_map.py": {
       "lines": 109,

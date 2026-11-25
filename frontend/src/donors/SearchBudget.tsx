@@ -59,7 +59,7 @@ function verdict(budget: ContactsBudget): { question: string; sites: number } {
     return { question: `Поиск не поставить: ${budget.unknown}.`, sites: 0 };
   if (budget.enough) {
     return {
-      question: `Найти адреса ${formatNumber(budget.sites)} сайтам? Платных запросов — до ${formatNumber(budget.needed)}, свободно ${formatNumber(budget.free)} кредитов.`,
+      question: `Найти адреса ${formatNumber(budget.sites)} сайтам? Платных запросов примерно ${formatNumber(budget.needed)}, свободно ${formatNumber(budget.free)} кредитов.`,
       sites: budget.sites,
     };
   }

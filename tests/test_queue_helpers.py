@@ -130,7 +130,7 @@ class TestContactsJobTimeout:
         assert queue.contacts_job_timeout(100) == queue.JOB_TIMEOUT
 
     def test_big_pass_gets_time_by_its_sites(self) -> None:
-        assert queue.contacts_job_timeout(2319) == 2319 * queue.CONTACTS_SECONDS_PER_HOST
+        assert queue.contacts_job_timeout(2001) == 2001 * queue.CONTACTS_SECONDS_PER_HOST
 
 
 class TestJobAlive:
