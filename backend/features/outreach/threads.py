@@ -63,6 +63,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Protocol, assert_never
 
+from backend.features.core import domain
 from backend.features.core.domain import GONE_STATUSES, MessageStatus, ReplyKind, Stage
 from backend.features.letters.chain import CHAINABLE, RECHECK_STEP
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_FREE, WITHOUT_PRICE
@@ -90,6 +91,7 @@ class ThreadState(StrEnum):
     STOPPED = "stopped"  # цепочка остановлена руками
     LEAD = "lead"  # ответил рекламодатель — лид ждёт человека
     LEAD_TAKEN = "lead_taken"  # лид взят в работу
+    LEAD_REFUSED = "lead_refused"  # лид в отказе: последний ответ человек отправил в отказ
     SALES_PENDING = "sales_pending"  # ответил лид продаж — ждёт, пока почта их подключит
     RECHECK = "recheck"  # цену перезапросили — ждём ответа донора
 
@@ -157,6 +159,9 @@ class ReplyFacts(Protocol):
     def reviewed_at(self) -> datetime | None: ...
 
     @property
+    def decision(self) -> str | None: ...
+
+    @property
     def price_white(self) -> Decimal | None: ...
 
     @property
@@ -193,6 +198,7 @@ ANSWER_STATES = frozenset(
         ThreadState.FREE,
         ThreadState.LEAD,
         ThreadState.LEAD_TAKEN,
+        ThreadState.LEAD_REFUSED,
         ThreadState.SALES_PENDING,
         ThreadState.RECHECK,
     }
@@ -268,10 +274,13 @@ def _answered(replies: Sequence[ReplyFacts], stage: Stage, asked_at: datetime | 
 
 
 def _lead_rules(replies: Sequence[ReplyFacts]) -> _Rules:
-    """Ответ рекламодателя: лид ждёт человека, пока его не взяли в работу."""
+    """Ответ рекламодателя: лид ждёт человека, пока не взят или не в отказе — по последнему."""
     human = [r for r in replies if r.kind is ReplyKind.HUMAN]
+    last = max(human, key=lambda r: (r.created_at, r.id or 0), default=None)
+    refused = last is not None and last.decision == domain.ReplyDecision.REFUSED
     return (
         (any(r.reviewed_at is None for r in human), ThreadState.LEAD),
+        (refused, ThreadState.LEAD_REFUSED),
         (bool(human), ThreadState.LEAD_TAKEN),
     )
 

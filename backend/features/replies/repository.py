@@ -22,6 +22,7 @@ from backend.features.core import stages
 from backend.features.core.domain import (
     ContactSource,
     MessageStatus,
+    ReplyDecision,
     ReplyKind,
     Stage,
     SuppressionReason,
@@ -80,7 +81,7 @@ class NotAPriceError(ValueError):
 
 
 class LeadError(ValueError):
-    """Лидом этот ответ не взять: он не лид или уже в работе."""
+    """Решения по лиду не принять: ответ не лид, уже в работе или уже в отказе."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,6 +469,19 @@ class ReplyRepository(DonorCardWrites):
         открывших один лид, должны узнать друг о друге до письма клиенту,
         а не после.
         """
+        await self.open_lead(reply)
+        moment = now or datetime.now(UTC)
+        reply.reviewed_by = by[:128]
+        reply.reviewed_at = moment
+        return moment
+
+    async def open_lead(self, reply: ReplyModel) -> None:
+        """Ответ — лид рекламодателя, и решения по нему ещё нет: его можно взять или отправить
+        в отказ (`lead_refusal.refuse`). Иначе — `LeadError` словами: не лид, уже в работе
+        или уже в отказе — кем и когда. **Под замком строки** (ревью 25.11.2026): два нажатия
+        разом прошли бы проверку оба — второе ждёт коммита первого и читает свежую строку."""
+        await self._session.flush()  # своё незаписанное решение — в строку: refresh его не сотрёт
+        await self._session.refresh(reply, with_for_update=True)
         stage = stage_rules.lead_stage(await self.stage_of(reply), reply.id)
         if reply.kind is not ReplyKind.HUMAN or stage is not Stage.ADVERTISERS:
             raise LeadError(
@@ -475,11 +489,10 @@ class ReplyRepository(DonorCardWrites):
                 "рекламодателю. Ответ донора разбирают как цену"
             )
         if reply.reviewed_at is not None:
+            done = (
+                "в отказе: отказал" if reply.decision == ReplyDecision.REFUSED else "в работе: взял"
+            )
             raise LeadError(
-                f"Лид по ответу №{reply.id} уже в работе: взял {reply.reviewed_by} "
+                f"Лид по ответу №{reply.id} уже {done} {reply.reviewed_by} "
                 f"{reply.reviewed_at:%d.%m.%Y %H:%M} UTC"
             )
-        moment = now or datetime.now(UTC)
-        reply.reviewed_by = by[:128]
-        reply.reviewed_at = moment
-        return moment

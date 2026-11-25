@@ -34,7 +34,9 @@ describe('состояние диалога', () => {
   it('состояния этапа — только с его правом, общие — всем', () => {
     expect(stateShown('lead', DONORS_ONLY)).toBe(false);
     expect(stateShown('lead_taken', DONORS_ONLY)).toBe(false);
+    expect(stateShown('lead_refused', DONORS_ONLY)).toBe(false);
     expect(stateShown('lead', NO_SALES)).toBe(true);
+    expect(stateShown('lead_refused', NO_SALES)).toBe(true);
     expect(stateShown('sales_pending', NO_SALES)).toBe(false);
     expect(stateShown('needs_review', DONORS_ONLY)).toBe(true);
   });

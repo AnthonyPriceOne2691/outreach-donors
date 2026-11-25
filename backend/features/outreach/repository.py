@@ -143,6 +143,7 @@ class ListedReply:
     placement: str | None
     raw_body: str
     model_parse: dict[str, Any] | None
+    decision: str | None = None
 
 
 def _body_head() -> ColumnElement[str]:
@@ -454,6 +455,7 @@ class OutreachRepository:
                 ReplyModel.price_grey,
                 ReplyModel.currency,
                 ReplyModel.placement,
+                ReplyModel.decision,
                 _body_head().label("raw_body"),
                 _snapshot().label("model_parse"),
             )
@@ -476,6 +478,7 @@ class OutreachRepository:
                     placement=row.placement,
                     raw_body=row.raw_body,
                     model_parse=row.model_parse,
+                    decision=row.decision,
                 )
             )
         return by_thread

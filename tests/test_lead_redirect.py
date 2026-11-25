@@ -40,7 +40,7 @@ from backend.features.letters.chain import ANSWER_STEP, REDIRECT_STEP
 from backend.features.letters.redirect_letter import foreign_note
 from backend.features.letters.redirect_send import Passed
 from backend.features.letters.transport import NullTransport, Outgoing
-from backend.features.replies import lead_redirect
+from backend.features.replies import lead_redirect, lead_refusal
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.pipeline import Inbox
 from backend.features.replies.redirect_ask import MIN_CONFIDENCE, RedirectClient, judged
@@ -435,6 +435,24 @@ class TestRefusals:
             ("letter", None),
             ("refused", lead_redirect.ONCE),
         ]
+
+    async def test_a_refused_lead_is_not_redirected(self, session: AsyncSession) -> None:
+        """«В отказ» (25.11.2026): рекламодатель отказался — оффер на другой адрес не уходит."""
+        _, reply = await asked(session)
+        await lead_refusal.refuse(
+            ReplyRepository(session), reply, by="anna@ours.example.test", now=NOW
+        )
+        await session.commit()
+        model = Model()
+
+        await run(session, model)
+
+        row = await decision(session)
+        assert row.state == "refused"
+        assert (row.reason or "").startswith(
+            f"{lead_redirect.REFUSED}: отказал anna@ours.example.test"
+        )
+        assert model.seen == []
 
     async def test_a_lead_taken_in_work_is_not_redirected(self, session: AsyncSession) -> None:
         _, reply = await asked(session)

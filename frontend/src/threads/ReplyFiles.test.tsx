@@ -62,6 +62,7 @@ const REPLY: IncomingCard = {
   reviewed_by: null,
   reviewed_at: null,
   lead: false,
+  decision: null,
 };
 
 const VIEW = {

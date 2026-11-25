@@ -69,6 +69,14 @@ class LeadTaken(BaseModel):
     handoff: str = "off"
 
 
+class LeadRefused(BaseModel):
+    """Лид в отказе: кто и когда. В CRM он не уходит."""
+
+    id: int
+    reviewed_by: str
+    reviewed_at: datetime
+
+
 class LeadSent(BaseModel):
     """Передача лида поставлена в очередь заново."""
 

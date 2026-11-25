@@ -48,6 +48,7 @@ export function reply(extra: Partial<IncomingCard> = {}): IncomingCard {
     attachments: [PRICE_FILE],
     confidence: 0.92,
     currency: 'USD',
+    decision: null,
     from_email: 'sales@prices.example.test',
     id: 52,
     kind: 'human',

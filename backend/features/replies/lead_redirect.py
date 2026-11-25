@@ -39,7 +39,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import redirect as redirect_cfg
-from backend.features.core.domain import ReplyKind, Stage
+from backend.features.core.domain import ReplyDecision, ReplyKind, Stage
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel, SenderModel
 from backend.features.core.models.redirect import LeadRedirectModel
@@ -55,6 +55,10 @@ if TYPE_CHECKING:
 #: Почему переадресации нет или письмо снято — словами для экрана и команды.
 ONCE = "в этой переписке уже переслали на другой адрес — второй раз не пересылаем"
 TAKEN = "лид уже взят в работу — дальше его ведёт человек"
+#: «В отказ» (25.11.2026): рекламодатель отказался — на другой адрес оффер не шлём.
+REFUSED = "лид в отказе — на другой адрес не пересылаем"
+#: Решение человека по лиду → слова причины и кто решил; пусто — взят в работу.
+_DECIDED: dict[str | None, tuple[str, str]] = {ReplyDecision.REFUSED.value: (REFUSED, "отказал")}
 ANSWERED = "в переписке уже ответили — дальше её ведёт человек"
 OURS = "это наш собственный адрес"
 SENDER = "это адрес, с которого ответили"
@@ -142,7 +146,8 @@ async def held(session: AsyncSession, thread_id: int, *, letting: int | None = N
     """Почему в переписке переадресации не будет — словами; `None` — может быть.
 
     Письмо на адрес из ответа уже заведено (одно на переписку), в переписке ответили (человек или
-    автопилот агента — `answers.py`) или ответ рекламодателя в ней взяли в работу. `letting` —
+    автопилот агента — `answers.py`) или ответ рекламодателя в ней взяли в работу либо отправили в
+    отказ. `letting` —
     письмо переадресации, которое проход сейчас отправляет: оно не второе, а то самое."""
     statement = select(MessageModel.step).where(MessageModel.thread_id == thread_id)
     if letting is not None:
@@ -154,7 +159,7 @@ async def held(session: AsyncSession, thread_id: int, *, letting: int | None = N
         return ANSWERED
     taken = (
         await session.execute(
-            select(ReplyModel.reviewed_by, ReplyModel.reviewed_at)
+            select(ReplyModel.reviewed_by, ReplyModel.reviewed_at, ReplyModel.decision)
             .where(
                 ReplyModel.thread_id == thread_id,
                 ReplyModel.kind == ReplyKind.HUMAN,
@@ -166,8 +171,9 @@ async def held(session: AsyncSession, thread_id: int, *, letting: int | None = N
     ).first()
     if taken is None:
         return None
-    who, when = taken
-    return f"{TAKEN}: взял {who or 'человек'} {when:%d.%m.%Y}"
+    who, when, decision = taken
+    words, verb = _DECIDED.get(decision, (TAKEN, "взял"))
+    return f"{words}: {verb} {who or 'человек'} {when:%d.%m.%Y}"
 
 
 async def note(

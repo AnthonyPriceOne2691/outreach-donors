@@ -13,6 +13,7 @@ import { Button, Card, Group, Stack, Text } from '@mantine/core';
 import type { IncomingCard } from '../api/types';
 import { formatDateTime } from '../format';
 import { shownAddress } from '../hostName';
+import { leadDecided, RefuseButton } from './LeadRefuse';
 import { PriceReview, type PriceReviewProps } from './PriceReview';
 
 const when = formatDateTime;
@@ -22,24 +23,27 @@ interface LeadProps {
   canTake: boolean;
   busy: boolean;
   onTake: () => void;
+  onRefuse: () => void;
   onSend: () => void;
 }
 
 /**
  * Ответ рекламодателя — лид. Цены в нём нет: «мы платим $300» — его расход,
  * а не цена площадки, и формы разбора здесь быть не должно (сервер её
- * отвергнет). Решение одно — кто его ведёт.
+ * отвергнет). Решение одно — кто его ведёт, или никто: «В отказ» (`LeadRefuse`,
+ * слово владельца 25.11.2026).
  */
-function LeadAction({ incoming, canTake, busy, onTake, onSend }: LeadProps) {
+function LeadAction({ incoming, canTake, busy, onTake, onRefuse, onSend }: LeadProps) {
   if (incoming.reviewed_at !== null) {
     return (
       <Group gap="sm" mt="sm" justify="space-between">
         <Text size="sm" c="dimmed">
-          В работе: {incoming.reviewed_by}, {when(incoming.reviewed_at)}
+          {leadDecided(incoming)}
         </Text>
         {/* Передача в CRM уходит сама при «взять»; кнопка — на случай, когда
-            вебхук настроили позже или получатель лежал дольше повторов. */}
-        {canTake ? (
+            вебхук настроили позже или получатель лежал дольше повторов. Лид в
+            отказе в CRM не передают: его никто не ведёт. */}
+        {canTake && incoming.decision !== 'refused' ? (
           <Button variant="subtle" size="xs" loading={busy} onClick={onSend}>
             Передать в CRM ещё раз
           </Button>
@@ -57,6 +61,7 @@ function LeadAction({ incoming, canTake, busy, onTake, onSend }: LeadProps) {
           <Button color="lagoon" className="press" loading={busy} onClick={onTake}>
             Взять в работу
           </Button>
+          <RefuseButton busy={busy} onConfirm={onRefuse} />
         </Group>
       ) : null}
     </Stack>
@@ -66,6 +71,7 @@ function LeadAction({ incoming, canTake, busy, onTake, onSend }: LeadProps) {
 interface DecisionProps extends Omit<PriceReviewProps, 'incoming'> {
   reply: IncomingCard;
   onTakeLead: () => void;
+  onRefuseLead: () => void;
   onSendLead: () => void;
   /** Открыт кнопкой в пузыре — можно свернуть. `null` — ответ ждёт решения. */
   onClose: (() => void) | null;
@@ -79,6 +85,7 @@ export function ReplyDecision({
   onDecline,
   refusal,
   onTakeLead,
+  onRefuseLead,
   onSendLead,
   onClose,
 }: DecisionProps) {
@@ -103,6 +110,7 @@ export function ReplyDecision({
             canTake={canReview}
             busy={busy}
             onTake={onTakeLead}
+            onRefuse={onRefuseLead}
             onSend={onSendLead}
           />
         </>

@@ -57,4 +57,4 @@ def test_online_reads_the_head_as_the_owner(monkeypatch: pytest.MonkeyPatch) -> 
     command.current(config)
 
     assert config.get_main_option("sqlalchemy.url") == TEST_DSN
-    assert "ce69f6ea12a1 (head)" in buffer.getvalue()  # pragma: allowlist secret
+    assert "e9cc40d23f04 (head)" in buffer.getvalue()  # pragma: allowlist secret

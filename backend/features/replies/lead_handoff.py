@@ -35,7 +35,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
-from backend.features.core.domain import ReplyKind, Stage
+from backend.features.core.domain import ReplyDecision, ReplyKind, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, ReplyModel, ThreadModel
@@ -124,6 +124,8 @@ def _leads() -> Select[tuple[ReplyModel, str, str, str | None, str | None, str |
         .join(DomainModel, DomainModel.id == ThreadModel.domain_id)
         .outerjoin(AdvertiserModel, AdvertiserModel.domain_id == ThreadModel.domain_id)
         .where(CampaignModel.stage == Stage.ADVERTISERS, ReplyModel.kind == ReplyKind.HUMAN)
+        # Лид в отказе — не лид для CRM и выгрузки: его никто не ведёт (`lead_refusal`).
+        .where(ReplyModel.decision.is_distinct_from(ReplyDecision.REFUSED.value))
     )
 
 
@@ -146,7 +148,7 @@ def _card(row: tuple[ReplyModel, str, str, str | None, str | None, str | None]) 
 
 
 async def lead_card(session: AsyncSession, reply_id: int) -> LeadCard | None:
-    """Карточка лида. `None` — это не лид (не ответ человека на оффер)."""
+    """Карточка лида. `None` — это не лид (не ответ человека на оффер) или лид в отказе."""
     row = (await session.execute(_leads().where(ReplyModel.id == reply_id))).first()
     return _card(row._tuple()) if row is not None else None
 

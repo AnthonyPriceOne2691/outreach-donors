@@ -352,6 +352,8 @@ class IncomingCard(BaseModel):
     lead: bool
     reviewed_by: str | None
     reviewed_at: datetime | None
+    #: `refused` — лид в отказе (`domain.ReplyDecision`); пусто — взят в работу или ждёт.
+    decision: str | None = None
     #: Ответ на перезапрос цены без числа (`threads.recheck_unpriced`): прежняя цена донора
     #: для «Цена та же» (`letters/recheck_answer.py`). Пусто — у ответа этого действия нет.
     same_price: PriceCard | None = None
@@ -398,6 +400,7 @@ class IncomingCard(BaseModel):
             lead=lead,
             reviewed_by=reply.reviewed_by,
             reviewed_at=reply.reviewed_at,
+            decision=reply.decision,
             same_price=recheck.price if unpriced and recheck is not None else None,
         )
 

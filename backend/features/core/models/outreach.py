@@ -407,6 +407,9 @@ class ReplyModel(TimestampedMixin, Base):
     model_parse: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Чем человек снял ответ с ожидания, когда `reviewed_*` мало (`domain.ReplyDecision`):
+    #: `refused` — лид рекламодателя в отказе. Пусто — взят в работу или разобран.
+    decision: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("inbound_message_id", name="uq_replies_inbound_message_id"),

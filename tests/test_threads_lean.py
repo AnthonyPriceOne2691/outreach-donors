@@ -219,6 +219,13 @@ WORLD: dict[str, Dialog] = {
     "lead-taken": Dialog(
         Stage.ADVERTISERS, DELIVERED, ({"kind": HUMAN, "reviewed_at": NOW},), ThreadState.LEAD_TAKEN
     ),
+    # «В отказ» (25.11.2026): лид не ждёт человека и не «в работе».
+    "lead-refused": Dialog(
+        Stage.ADVERTISERS,
+        DELIVERED,
+        ({"kind": HUMAN, "reviewed_at": NOW, "decision": "refused"},),
+        ThreadState.LEAD_REFUSED,
+    ),
     # Сумма в автоответе рекламодателя — его расход, а не цена: человека не ждёт.
     "advertiser-auto-sum": Dialog(
         Stage.ADVERTISERS,
@@ -385,6 +392,8 @@ REPLY_FIELDS = {
     "price_grey",
     "currency",
     "placement",
+    # Слово решения человека — «лид в отказе» (25.11.2026): короткая строка, не текст.
+    "decision",
 }
 #: Тексты и адреса — то, что весит. Ни списку, ни числам «Обзора» они не нужны.
 TEXTS = {

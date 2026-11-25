@@ -110,6 +110,20 @@ export function takeLead(id: number): Promise<LeadTaken> {
   return request<LeadTaken>(`/replies/${id}/lead`, { method: 'POST' });
 }
 
+/** Лид в отказе: кто и когда решил. Здесь, а не рядом с `LeadTaken` в `types.ts`: тот у предела
+ *  длины файла. */
+export interface LeadRefused {
+  id: number;
+  reviewed_by: string;
+  reviewed_at: string;
+}
+
+/** Ответ рекламодателя — в отказ (слово владельца 25.11.2026): лид перестаёт ждать человека,
+ *  в CRM и в выгрузку лидов не уходит. Уже в работе, уже в отказе или не лид — 409 словами. */
+export function refuseLead(id: number): Promise<LeadRefused> {
+  return request<LeadRefused>(`/replies/${id}/lead/refuse`, { method: 'POST' });
+}
+
 /** Взятый лид — в CRM ещё раз: вебхук настроили позже или получатель лежал. */
 export function sendLead(id: number): Promise<LeadSent> {
   return request<LeadSent>(`/replies/${id}/lead/send`, { method: 'POST' });
