@@ -887,9 +887,9 @@
       "worst": "_print_runs:160"
     },
     "backend/cli/replies_relabel.py": {
-      "lines": 73,
-      "complexity": 3,
-      "worst": "_print:35"
+      "lines": 75,
+      "complexity": 4,
+      "worst": "run:43"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -2797,9 +2797,9 @@
       "worst": "decode:92"
     },
     "backend/features/replies/classify.py": {
-      "lines": 402,
-      "complexity": 5,
-      "worst": "_service_promise:266"
+      "lines": 409,
+      "complexity": 6,
+      "worst": "_only_punctuation:288"
     },
     "backend/features/replies/confirmation.py": {
       "lines": 122,
@@ -2912,9 +2912,9 @@
       "worst": "_letter_words:71"
     },
     "backend/features/replies/relabel.py": {
-      "lines": 113,
+      "lines": 125,
       "complexity": 6,
-      "worst": "candidates:47"
+      "worst": "candidates:49"
     },
     "backend/features/replies/repository.py": {
       "lines": 499,
@@ -2932,9 +2932,9 @@
       "worst": "price_confirmable:29"
     },
     "backend/features/replies/ticket_phrases.py": {
-      "lines": 254,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 261,
+      "complexity": 1,
+      "worst": "_either_order:245"
     },
     "backend/features/replies/unbound.py": {
       "lines": 257,

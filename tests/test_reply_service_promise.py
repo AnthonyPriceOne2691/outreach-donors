@@ -79,7 +79,7 @@ PROD_LIKE = {
         RECEIPT,
     ),
     "оценка чата": ("Rate your conversation", "оценка разговора"),
-    "письмо из одной точки": (".", "пустое письмо"),
+    "письмо из одной точки": (".", "письмо из знаков препинания"),
 }
 
 
@@ -96,7 +96,7 @@ EACH_LANGUAGE = {
     "en": "Thanks for your email. Our customer service team will get back to you shortly.",
     "de": "Vielen Dank für Ihre Nachricht. Unser Kundenservice wird sich bald bei Ihnen melden.",
     "fr": "Merci pour votre message. Notre service client vous répondra rapidement.",
-    "es": "Gracias por su mensaje. Nuestro equipo de soporte se pondrá en contacto con usted.",
+    "es": "Gracias por su mensaje. Nuestro equipo de soporte se pondrá en contacto con usted en breve.",
     "it": "Grazie per il messaggio. Il nostro servizio clienti ti risponderà al più presto.",
     "pt": "Obrigado pela mensagem. Nossa equipe de suporte entrará em contato em breve.",
     "nl": "Bedankt voor uw bericht. Ons klantenservice neemt spoedig contact met u op.",
@@ -162,14 +162,15 @@ def test_answer_later_without_a_receipt_is_a_human() -> None:
 
 
 def test_long_business_reply_with_a_service_promise_is_a_human() -> None:
-    """В длинном деловом ответе «наша служба поддержки поможет» — часть дела."""
+    """В длинном деловом ответе обещание службы — часть дела: потолок длины решает."""
+    promise = "Our support team will get back to you shortly."
     business = (
         "We publish sponsored reviews on our site and can include your brand next month. " * 11
     )
-    got = verdict(business + "Our support team will help you with the integration afterwards.")
 
+    assert verdict(promise).kind is ReplyKind.AUTO_REPLY
     assert len(business) > classify.PROMISE_MAX_CHARS
-    assert got.kind is ReplyKind.HUMAN
+    assert verdict(business + promise).kind is ReplyKind.HUMAN
 
 
 def test_sum_outweighs_a_service_promise() -> None:
@@ -199,9 +200,50 @@ def test_rating_line_inside_a_real_answer_is_a_human() -> None:
     assert verdict(text).kind is ReplyKind.HUMAN
 
 
-@pytest.mark.parametrize("text", ["Ok", "100", "Да"])
-def test_a_word_or_a_number_is_not_empty(text: str) -> None:
-    assert verdict(text).rule != "пустое письмо"
+@pytest.mark.parametrize("text", ["Ok", "100", "Да", "👍"])
+def test_a_word_a_number_or_an_emoji_is_an_answer(text: str) -> None:
+    """«👍» — «да» человека, а не «.» чата поддержки (ревью продаж 25.11.2026)."""
+    assert verdict(text).kind is ReplyKind.HUMAN
+
+
+def test_answer_written_in_the_subject_is_a_human() -> None:
+    """Пустое тело бывает у ответа, написанного в теме."""
+    got = verdict("", subject="Re: Price monitoring - yes, call me tomorrow")
+
+    assert got.kind is ReplyKind.HUMAN
+
+
+#: Пробы продаж 25.11.2026: лицо службы, обещание или «opened a request» по отдельности пишет и
+#: человек — «пишите другому», «посмотрим на следующей неделе», вежливый отказ.
+LIVE_PROBES = {
+    "пишите другому": (
+        "Hi, I'm not the right person for this. The customer service team will be able to help "
+        "you, please write to them directly."
+    ),
+    "посмотрим позже": (
+        "Thanks for the offer. Our support team will review it next week and we will let you know."
+    ),
+    "вежливый отказ": (
+        "Not interested right now, sorry. Our service team will keep your contact on file."
+    ),
+    "передал коллегам": "Спасибо, передал ваше письмо коллегам. Служба поддержки ответит вам.",
+    "посмотрят предложение": "Danke, unser Support-Team wird sich Ihr Angebot ansehen.",
+    "заявка в закупки": (
+        "Thank you, we have opened a request with our procurement department and will get back to "
+        "you as soon as possible."
+    ),
+}
+
+
+@pytest.mark.parametrize("text", LIVE_PROBES.values(), ids=LIVE_PROBES.keys())
+def test_live_answers_with_service_words_stay_human(text: str) -> None:
+    assert verdict(text).kind is ReplyKind.HUMAN
+
+
+def test_short_form_of_will_is_a_promise_too() -> None:
+    got = verdict("We have received your email and we'll get back to you shortly.")
+
+    assert (got.kind, got.rule) == (ReplyKind.AUTO_REPLY, PROMISE)
 
 
 def test_golden_replies_stay_human() -> None:
@@ -219,7 +261,12 @@ def test_golden_replies_stay_human() -> None:
 
 @pytest.mark.parametrize(
     "table",
-    [ticket_phrases.SERVICE_PROMISE, ticket_phrases.ANSWER_LATER, ticket_phrases.CHAT_RATING],
+    [
+        ticket_phrases.SERVICE_TEAM,
+        ticket_phrases.PROMISE_VERB,
+        ticket_phrases.PROMISE_TIME,
+        ticket_phrases.CHAT_RATING,
+    ],
 )
 def test_every_promise_dictionary_knows_every_language(table: dict[str, tuple[str, ...]]) -> None:
     """Язык, забытый в словаре, — рынок, где подтверждение службы снова ждёт человека."""

@@ -20,8 +20,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import ReplyKind, Stage
@@ -71,12 +73,22 @@ async def candidates(session: AsyncSession) -> list[Relabel]:
 
 
 async def apply(session: AsyncSession, found: Sequence[Relabel]) -> int:
-    """Записать автоответ найденным ответам. Коммит — за вызывающим."""
-    for item in found:
-        reply = await session.get(ReplyModel, item.reply_id)
-        if reply is not None:
-            reply.kind = ReplyKind.AUTO_REPLY
-    return len(found)
+    """Записать автоответ найденным ответам — одним запросом с теми же условиями, что у показа:
+    между показом и записью человек мог взять ответ в работу или отправить в отказ, и такой ответ
+    не трогается (ревью продаж 25.11.2026). Ответ — сколько записано. Коммит — за вызывающим."""
+    if not found:
+        return 0
+    result = await session.execute(
+        update(ReplyModel)
+        .where(
+            ReplyModel.id.in_([item.reply_id for item in found]),
+            ReplyModel.kind == ReplyKind.HUMAN,
+            ReplyModel.reviewed_at.is_(None),
+            ReplyModel.decision.is_(None),
+        )
+        .values(kind=ReplyKind.AUTO_REPLY)
+    )
+    return int(cast("CursorResult[Any]", result).rowcount)
 
 
 async def _files(

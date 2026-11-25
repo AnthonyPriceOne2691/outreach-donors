@@ -52,6 +52,8 @@ async def run(session: AsyncSession, *, write: bool) -> int:
         await session.commit()
         logger.info("ответы: переразобраны в автоответ", extra={"replies": changed})
         print(f"\nЗаписано: автоответом стали {changed}.")
+        if changed < len(found):
+            print(f"Не тронуты: {len(found) - changed} — их уже решил человек.")
     else:
         print(
             f"\nЭто показ — в базе ничего не изменилось. Станут автоответом: {len(found)}. "

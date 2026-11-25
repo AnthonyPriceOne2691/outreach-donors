@@ -19,6 +19,7 @@ from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.outreach import CampaignModel, ReplyModel, ThreadModel
 from backend.features.replies import relabel
 from backend.features.replies.pipeline import Inbox
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_letters_advertisers import NOW, SECRET, answer_to, sent_offer
 
@@ -77,6 +78,39 @@ class TestRelabel:
         assert reply.kind is ReplyKind.AUTO_REPLY
         assert "Записано: автоответом стали 1." in capsys.readouterr().out
         assert await relabel.candidates(session) == []
+
+    async def test_a_reply_decided_between_show_and_write_is_not_touched(
+        self,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Показ нашёл ответ, а до записи человек взял его в работу: запись его не трогает
+        (ревью продаж 25.11.2026 — гонка с «Взять в работу» и «В отказ»)."""
+        reply = await _stored(session, monkeypatch, OLD_RECEIPT)
+        reply_id = reply.id
+        found = await relabel.candidates(session)
+        await session.execute(
+            update(ReplyModel)
+            .where(ReplyModel.id == reply_id)
+            .values(reviewed_by="анна@site.com", reviewed_at=datetime(2026, 9, 22, tzinfo=UTC))
+        )
+        await session.commit()
+
+        async def stale(_session: object) -> list[relabel.Relabel]:
+            return found
+
+        monkeypatch.setattr(replies_relabel.relabel, "candidates", stale)
+
+        assert await replies_relabel.run(session, write=True) == 0
+
+        said = capsys.readouterr().out
+        assert "Записано: автоответом стали 0." in said
+        assert "Не тронуты: 1 — их уже решил человек." in said
+        kept = await session.get(ReplyModel, reply_id)
+        assert kept is not None
+        await session.refresh(kept)
+        assert kept.kind is ReplyKind.HUMAN
 
     async def test_a_live_answer_stays_a_human(
         self,

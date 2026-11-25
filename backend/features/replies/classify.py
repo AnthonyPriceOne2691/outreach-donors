@@ -49,13 +49,15 @@
 
 **Служба обещает ответить позже** — автоответчик и без номера заявки (проверка прода
 25.11.2026: среди ответов рекламодателей, ждавших человека, — подтверждения служб
-поддержки без номера, оценка чата и письмо из одной точки). Узнаётся только в
-коротком письме (`PROMISE_MAX_CHARS`): лицом службы («our support team will respond
-shortly», `ticket_phrases.SERVICE_PROMISE`) — само по себе, а «ответим как можно скорее»
-(`ANSWER_LATER`) — только вместе с фразой о приёме обращения: «перешлю коллеге, он ответит
-на днях» пишет и человек. **Оценка разговора** («Rate your conversation») — в письме из
-одной строки, **пустое письмо** — без единой буквы и цифры. Сумма и файл перевешивают все
-три: живой сотрудник поддержки, назвавший цену, — ответ.
+поддержки без номера, оценка чата и письмо из одной точки). Нужны обещание ответить в срок
+(глагол и срок одной фразой, `ticket_phrases.ANSWER_LATER_RE`) и лицо службы («our support
+team», `SERVICE_TEAM`) или фраза о приёме обращения — и только в коротком письме
+(`PROMISE_MAX_CHARS`). Каждый признак по отдельности пишет и человек: «служба поддержки
+ответит вам», «наша команда посмотрит на следующей неделе», «we have opened a request with
+our procurement department» (ревью продаж 25.11.2026). **Оценка разговора** («Rate your
+conversation») — в письме из одной строки, **письмо из знаков препинания** — «.» (эмодзи и
+пустое тело — ответ). Сумма и файл перевешивают все три: живой сотрудник поддержки,
+назвавший цену, — ответ.
 
 Правила лежат списком и разбираются по порядку, а не цепочкой `if`:
 список видно целиком, и переставить в нём строку — значит изменить
@@ -71,6 +73,7 @@ shortly», `ticket_phrases.SERVICE_PROMISE`) — само по себе, а «о
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -118,8 +121,6 @@ _MACHINE_SIGNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: Адрес сайта в теме: «vacationguide.com». Последняя часть — буквы,
 #: чтобы «5.1.1» и «e.g.» адресом не считались.
 _HOST = re.compile(r"\b[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{2,}\b")
-#: Хоть одна буква или цифра — письмо не пустое (`_no_words`).
-_WORD = re.compile(r"[^\W_]")
 
 
 def _header_says(incoming: Incoming, name: str, *values: str) -> bool:
@@ -264,15 +265,14 @@ def _flat_length(body: str) -> int:
 
 
 def _service_promise(incoming: Incoming, body: str) -> bool:
-    """Служба обещает ответить позже: лицом службы — само по себе, «ответим как можно
-    скорее» — вместе с фразой о приёме обращения. Только в коротком письме без файла."""
+    """Служба обещает ответить в срок — и говорит это лицом службы или вместе с фразой о приёме
+    обращения. Только в коротком письме без файла."""
     if incoming.has_price_file or _flat_length(body) > PROMISE_MAX_CHARS:
         return False
-    if ticket_phrases.SERVICE_PROMISE_RE.search(body):
-        return True
+    if not ticket_phrases.ANSWER_LATER_RE.search(body):
+        return False
     return bool(
-        ticket_phrases.ANSWER_LATER_RE.search(body)
-        and ticket_phrases.TICKET_RECEIPT_RE.search(body)
+        ticket_phrases.SERVICE_TEAM_RE.search(body) or ticket_phrases.TICKET_RECEIPT_RE.search(body)
     )
 
 
@@ -285,9 +285,16 @@ def _chat_rating(incoming: Incoming, body: str) -> bool:
     )
 
 
-def _no_words(incoming: Incoming, body: str) -> bool:
-    """Ни буквы, ни цифры и без файла — «.» из чата поддержки, а не ответ."""
-    return not incoming.has_price_file and not _WORD.search(body)
+def _only_punctuation(incoming: Incoming, body: str) -> bool:
+    """Письмо из одних знаков препинания — «.» из чата поддержки, а не ответ. Эмодзи — ответ
+    («👍» — да), пустое тело — тоже: ответ бывает написан в теме (ревью продаж 25.11.2026)."""
+    text = body.strip()
+    return (
+        bool(text)
+        and not incoming.has_price_file
+        and all(unicodedata.category(char)[0] in "PZC" for char in text)
+        and any(unicodedata.category(char)[0] == "P" for char in text)
+    )
 
 
 #: Слова служебного письма — то, что сумма в тексте перевешивает (`_sum_outweighs_phrase`).
@@ -369,7 +376,7 @@ RULES: tuple[tuple[str, ReplyKind, _Check], ...] = (
     ("подтверждение заявки", ReplyKind.AUTO_REPLY, _ticket_receipt),
     ("служба обещает ответить", ReplyKind.AUTO_REPLY, _service_promise),
     ("оценка разговора", ReplyKind.AUTO_REPLY, _chat_rating),
-    ("пустое письмо", ReplyKind.AUTO_REPLY, _no_words),
+    ("письмо из знаков препинания", ReplyKind.AUTO_REPLY, _only_punctuation),
     ("письмо робота без суммы и файла", ReplyKind.AUTO_REPLY, _robot_without_file),
 )
 

@@ -36,9 +36,11 @@ TICKET_RECEIPT: Table = {
         r"\b(?:please\s+)?rate\s+(?:our|the)\s+(?:support|service|customer\s+service|response|agent)\b",
         # Проверка прода 25.11.2026: «We’ve created a new ticket (#48213)», «thank you for
         # opening a new request» — служба заводит заявку сама.
-        r"\bwe(?:\s+have|['’]ve)\s+(?:created|opened|logged|registered)\s+a\s+(?:new\s+)?"
-        r"(?:support\s+)?(?:ticket|case|request)\b",
-        r"\bthank(?:s|\s+you)\s+for\s+opening\s+a\s+(?:new\s+)?(?:support\s+)?(?:ticket|case|request)\b",
+        # Голое «request» — не заявка службы: «we have opened a request with our procurement
+        # department» пишет человек (ревью продаж 25.11.2026), поэтому — с «new» или «support».
+        r"\bwe(?:\s+have|['’]ve)\s+(?:created|opened|logged|registered)\s+a\s+"
+        r"(?:new\s+(?:support\s+)?(?:ticket|case|request)|support\s+(?:ticket|case|request)|ticket|case)\b",
+        r"\bthank(?:s|\s+you)\s+for\s+opening\s+a\s+new\s+(?:support\s+)?(?:ticket|case|request)\b",
     ),
     "de": (
         r"\bihre?\s+(?:anfrage|nachricht|e-?mail|ticket|meldung|support-?anfrage)\b[^.!?]{0,60}?"
@@ -143,101 +145,92 @@ TICKET_NUMBER_RE = re.compile(
     re.I,
 )
 
-#: Служба обещает ответить позже — лицом службы: «our support team will respond shortly»,
-#: «a member of our Customer Service Team will…», «one of our support agents will assist you».
-#: Проверка прода 25.11.2026: среди ответов рекламодателей, ждавших человека, — такие
-#: подтверждения без номера заявки. Человек о себе так не пишет: он говорит «я», «мы» или
-#: «коллега», а не «команда поддержки». Решает только в коротком письме (`classify`): в
-#: длинном деловом ответе «наша служба поддержки поможет с интеграцией» — часть дела.
-SERVICE_PROMISE: Table = {
+#: Лицо службы поддержки: «our support team», «a member of our Customer Service Team», «one of
+#: our support agents». Само по себе ничего не решает: «the customer service team will be able to
+#: help you, please write to them» пишет человек (ревью продаж 25.11.2026). Решает вместе с
+#: обещанием ответить в срок (`ANSWER_LATER_RE`) — правило «служба обещает ответить» (`classify`).
+SERVICE_TEAM: Table = {
     "en": (
         r"\b(?:our|the|one\s+of\s+our|a\s+member\s+of\s+(?:our|the))\s+(?:customer\s+)?"
         r"(?:support|service|care|help\s*desk|customer\s+service|customer\s+care)\s+"
-        r"(?:team|agents?|specialists?|representatives?|staff)\s+(?:will|shall|is\s+going\s+to)\b",
+        r"(?:team|agents?|specialists?|representatives?|staff)\b",
     ),
     "de": (
-        r"\b(?:unser|ein\s+mitarbeiter\s+unseres)\s+(?:support|kundenservice|kundendienst|service)"
-        r"(?:-?team)?s?\s+(?:wird|meldet\s+sich)\b",
+        r"\b(?:unser(?:e[mn]?)?|ein\s+mitarbeiter\s+unseres)\s+(?:support|kundenservice|kundendienst)"
+        r"(?:-?team)?s?\b",
     ),
     "fr": (
         r"\b(?:notre|un\s+membre\s+de\s+notre)\s+(?:équipe\s+(?:support|du\s+support|du\s+service\s+client)"
-        r"|service\s+client|support)\s+(?:vous\s+)?(?:répondra|reviendra|contactera|recontactera)\b",
+        r"|service\s+client|support)\b",
     ),
     "es": (
         r"\b(?:nuestro|un\s+miembro\s+de\s+nuestro)\s+(?:equipo\s+de\s+(?:soporte|atención)"
-        r"|servicio\s+de\s+atención(?:\s+al\s+cliente)?|soporte)\s+(?:se\s+pondrá\s+en\s+contacto|"
-        r"(?:le|te)\s+(?:responderá|contactará))\b",
+        r"|servicio\s+de\s+atención(?:\s+al\s+cliente)?|soporte)\b",
     ),
     "it": (
         r"\b(?:il\s+nostro|un\s+membro\s+del\s+nostro)\s+(?:team\s+di\s+supporto|servizio\s+clienti|"
-        r"supporto)\s+(?:ti|la|vi)\s+(?:risponderà|contatterà|ricontatterà)\b",
+        r"supporto)\b",
     ),
     "pt": (
-        r"\b(?:nossa\s+equipe|nosso\s+suporte|nosso\s+atendimento)(?:\s+de\s+(?:suporte|atendimento))?\s+"
-        r"(?:entrará\s+em\s+contato|responderá|retornará)\b",
+        r"\b(?:nossa\s+equipe\s+de\s+(?:suporte|atendimento)|nosso\s+(?:suporte|atendimento))\b",
     ),
     "nl": (
-        r"\b(?:ons|een\s+medewerker\s+van\s+ons)\s+(?:supportteam|klantenservice|serviceteam|team)\s+"
-        r"(?:neemt|zal|reageert)\b",
+        r"\b(?:ons|een\s+medewerker\s+van\s+ons)\s+(?:supportteam|klantenservice|serviceteam)\b",
     ),
-    "pl": (
-        r"\bnasz\s+(?:zespół\s+(?:wsparcia|obsługi)|konsultant|dział\s+obsługi)\s+"
-        r"(?:odpowie|skontaktuje\s+się)\b",
-    ),
+    "pl": (r"\b(?:nasz|naszego)\s+(?:zespół\s+(?:wsparcia|obsługi)|konsultant|dział\s+obsługi)\b",),
     "ru": (
         r"\b(?:наш[аи]?\s+)?(?:служба\s+поддержки|специалист[ыа]?\s+(?:службы\s+)?поддержки|"
-        r"оператор[ыа]?\s+поддержки)\s+(?:свяж(?:е|у)тся|ответ(?:и|я)т)\b",
+        r"оператор[ыа]?\s+поддержки)\b",
     ),
 }
 
-#: «Ответим вам как можно скорее» без лица службы — так пишет и человек, поэтому решает
-#: только вместе с фразой о приёме обращения (`TICKET_RECEIPT`) и только в коротком письме:
-#: «We've received your request and will get back to you as quickly as possible».
-ANSWER_LATER: Table = {
+#: Обещание ответить — глаголом ответа и сроком, в любом порядке внутри фразы: «will get back to
+#: you as soon as possible», «responderemos lo antes posible», «sich bald bei Ihnen melden». Без
+#: срока не обещание: «Служба поддержки ответит вам» — человек, передавший письмо.
+PROMISE_VERB: Table = {
     "en": (
-        r"\bwill\s+(?:get\s+back\s+to\s+you|respond(?:\s+to\s+you)?|reply(?:\s+to\s+you)?|"
-        r"be\s+in\s+touch|contact\s+you|assist\s+you)\b[^.!?]{0,60}?\b(?:as\s+soon\s+as\s+"
-        r"(?:possible|we\s+can)|shortly|as\s+quickly\s+as\s+possible|within\s+\d+|in\s+the\s+next\s+\d+)",
+        r"get\s+back\s+to\s+you|respond(?:\s+to\s+you)?|reply(?:\s+to\s+you)?|be\s+in\s+touch|"
+        r"contact\s+you|assist\s+you|answer\s+you",
+    ),
+    "de": (r"melden|antworten|kontaktieren|zurückmelden",),
+    "fr": (
+        r"répondr(?:a|ons|ont)|reviendr(?:a|ons|ont)\s+vers\s+vous|(?:re)?contacter(?:a|ons|ont)",
+    ),
+    "es": (r"responder(?:á|emos|án)|contactar(?:á|emos|án)|pondr(?:á|emos|án)\s+en\s+contacto",),
+    "it": (r"rispond(?:erà|eremo|eranno)|(?:ri)?contatt(?:erà|eremo|eranno)",),
+    "pt": (
+        r"respond(?:erá|eremos|erão)|retorn(?:ará|aremos|arão)|entr(?:ará|aremos|arão)\s+em\s+contato",
+    ),
+    "nl": (r"contact|reageren|antwoorden",),
+    "pl": (r"odpowie(?:my)?|skontaktuje(?:my)?\s+się|odezwie(?:my)?\s+się",),
+    "ru": (r"ответ(?:им|ит|ят)|свяж(?:емся|ется|утся)",),
+}
+PROMISE_TIME: Table = {
+    "en": (
+        r"as\s+soon\s+as\s+(?:possible|we\s+can)|shortly|as\s+quickly\s+as\s+possible|within\s+\d+|"
+        r"in\s+the\s+next\s+\d+",
     ),
     "de": (
-        r"\b(?:melden\s+uns|antworten\s+ihnen|uns\s+(?:bei\s+ihnen\s+)?melden)\b[^.!?]{0,40}?"
-        r"\b(?:so\s+schnell\s+wie\s+möglich|schnellstmöglich|in\s+kürze|zeitnah|innerhalb\s+von\s+\d+)",
+        r"so\s+schnell\s+wie\s+möglich|schnellstmöglich|in\s+kürze|zeitnah|innerhalb\s+von\s+\d+|bald",
     ),
     "fr": (
-        r"\b(?:répondrons|reviendrons\s+vers\s+vous|recontacterons)\b[^.!?]{0,40}?"
-        r"\b(?:dans\s+les\s+(?:plus\s+)?brefs\s+délais|rapidement|sous\s+\d+|au\s+plus\s+vite|"
-        r"dès\s+que\s+possible)",
+        r"dans\s+les\s+(?:plus\s+)?brefs\s+délais|rapidement|sous\s+\d+|au\s+plus\s+vite|"
+        r"dès\s+que\s+possible",
     ),
-    "es": (
-        r"\b(?:responderemos|contactaremos)\b[^.!?]{0,40}?\b(?:lo\s+antes\s+posible|en\s+breve|"
-        r"a\s+la\s+mayor\s+brevedad|en\s+las\s+próximas\s+\d+)",
-    ),
-    "it": (
-        r"\b(?:risponderemo|ricontatteremo)\b[^.!?]{0,40}?\b(?:al\s+più\s+presto|a\s+breve|"
-        r"il\s+prima\s+possibile|entro\s+\d+)",
-    ),
+    "es": (r"lo\s+antes\s+posible|en\s+breve|a\s+la\s+mayor\s+brevedad|en\s+las\s+próximas\s+\d+",),
+    "it": (r"al\s+più\s+presto|a\s+breve|il\s+prima\s+possibile|entro\s+\d+",),
     "pt": (
-        r"\b(?:responderemos|retornaremos|entraremos\s+em\s+contato)\b[^.!?]{0,40}?"
-        r"\b(?:o\s+mais\s+(?:breve|rápido)\s+possível|em\s+breve|assim\s+que\s+possível|em\s+até\s+\d+)",
+        r"o\s+mais\s+(?:breve|rápido)\s+possível|em\s+breve|assim\s+que\s+possível|em\s+até\s+\d+",
     ),
-    "nl": (
-        r"\b(?:nemen|zullen)\b[^.!?]{0,30}?\b(?:zo\s+snel\s+mogelijk|spoedig|binnen\s+\d+)"
-        r"[^.!?]{0,30}?\bcontact\b",
-    ),
-    "pl": (
-        r"\b(?:odpowiemy|skontaktujemy\s+się)\b[^.!?]{0,40}?\b(?:najszybciej\s+jak|wkrótce|"
-        r"niezwłocznie|w\s+ciągu\s+\d+)",
-    ),
-    "ru": (
-        r"\b(?:ответим|свяжемся\s+с\s+вами)\b[^.!?]{0,40}?\b(?:в\s+ближайшее\s+время|"
-        r"как\s+можно\s+скорее|в\s+течение\s+\d+)",
-    ),
+    "nl": (r"zo\s+snel\s+mogelijk|spoedig|binnenkort|binnen\s+\d+",),
+    "pl": (r"najszybciej\s+jak|jak\s+najszybciej|wkrótce|niezwłocznie|w\s+ciągu\s+\d+",),
+    "ru": (r"в\s+ближайшее\s+время|как\s+можно\s+скорее|в\s+кратчайшие\s+сроки|в\s+течение\s+\d+",),
 }
 
 #: Оценка разговора в чате поддержки — письмо из одной строки: «Rate your conversation»
 #: (проверка прода 25.11.2026). Решает только в очень коротком письме (`classify`).
 CHAT_RATING: Table = {
-    "en": (r"\b(?:rate|review)\s+(?:your|this|the)\s+(?:conversation|chat|experience)\b",),
+    "en": (r"\b(?:rate|review)\s+(?:your|this|the)\s+(?:conversation|chat)\b",),
     "de": (r"\bbewerten\s+sie\s+(?:dieses|das|ihr)\s+(?:gespräch|chat)\b",),
     "fr": (r"\b(?:évaluez|notez)\s+(?:cette|votre)\s+(?:conversation|discussion)\b",),
     "es": (r"\b(?:valora|califica|evalúa)\s+(?:esta|tu|su)\s+(?:conversación|chat)\b",),
@@ -248,6 +241,20 @@ CHAT_RATING: Table = {
     "ru": (r"\bоцените\s+(?:этот\s+|наш\s+)?(?:диалог|разговор|чат)\b",),
 }
 
-SERVICE_PROMISE_RE = compiled(SERVICE_PROMISE)
-ANSWER_LATER_RE = compiled(ANSWER_LATER)
+
+def _either_order(verb: str, time: str) -> str:
+    return rf"\b(?:{verb})\b[^.!?]{{0,60}}?\b(?:{time})|\b(?:{time})\b[^.!?]{{0,60}}?\b(?:{verb})\b"
+
+
+SERVICE_TEAM_RE = compiled(SERVICE_TEAM)
+#: Обещание ответить в срок — глагол и срок одной фразой, на всех языках словаря.
+ANSWER_LATER_RE = re.compile(
+    "|".join(
+        f"(?:{_either_order(verb, time)})"
+        for lang in LANGUAGES
+        for verb in PROMISE_VERB[lang]
+        for time in PROMISE_TIME[lang]
+    ),
+    re.I,
+)
 CHAT_RATING_RE = compiled(CHAT_RATING)
