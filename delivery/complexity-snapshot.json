@@ -2797,9 +2797,9 @@
       "worst": "decode:92"
     },
     "backend/features/replies/classify.py": {
-      "lines": 409,
-      "complexity": 6,
-      "worst": "_only_punctuation:288"
+      "lines": 420,
+      "complexity": 8,
+      "worst": "_service_promise:270"
     },
     "backend/features/replies/confirmation.py": {
       "lines": 122,
@@ -2932,7 +2932,7 @@
       "worst": "price_confirmable:29"
     },
     "backend/features/replies/ticket_phrases.py": {
-      "lines": 261,
+      "lines": 268,
       "complexity": 1,
       "worst": "_either_order:245"
     },

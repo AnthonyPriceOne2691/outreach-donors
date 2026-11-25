@@ -228,6 +228,24 @@ LIVE_PROBES = {
     ),
     "передал коллегам": "Спасибо, передал ваше письмо коллегам. Служба поддержки ответит вам.",
     "посмотрят предложение": "Danke, unser Support-Team wird sich Ihr Angebot ansehen.",
+    "интерес, лицо службы в другой фразе": (
+        "Interesting! Our support team uses a similar tool already. I'll get back to you within 2 "
+        "weeks after discussing internally."
+    ),
+    "интерес по-русски": (
+        "Интересно. Наша служба поддержки как раз ищет такое. Ответим в течение 3 дней, обсудим "
+        "внутри."
+    ),
+    "переслал в поддержку": (
+        "Thanks, I've forwarded your email to our support team and I'll get back to you shortly."
+    ),
+    "переслал, по-немецки": (
+        "Danke, ich habe es an unser Support-Team weitergeleitet, wir melden uns bald."
+    ),
+    "получили, спрошу владельца": (
+        "Hi, we have received your message. I will check with the owner and respond within 2 days."
+    ),
+    "понял, ответим": "Got it, thanks. We will get back to you as soon as we can.",
     "заявка в закупки": (
         "Thank you, we have opened a request with our procurement department and will get back to "
         "you as soon as possible."
@@ -240,8 +258,26 @@ def test_live_answers_with_service_words_stay_human(text: str) -> None:
     assert verdict(text).kind is ReplyKind.HUMAN
 
 
-def test_short_form_of_will_is_a_promise_too() -> None:
-    got = verdict("We have received your email and we'll get back to you shortly.")
+#: Пробы продаж 25.11.2026, которые остаются автоответом: приём обращения и срок — хоть в разных
+#: фразах, лицо службы и срок — в одной, «we'll» — тоже обещание.
+AUTO_PROBES = {
+    "приём и срок": (
+        "Thank you for your email. We have received your request and will respond within 24 hours."
+    ),
+    "приём, потом команда": (
+        "Your message has been received. Our team will get back to you shortly."
+    ),
+    "команда сервиса в одной фразе со сроком": (
+        "Thank you for contacting us. A member of our Customer Service Team will respond to you "
+        "shortly."
+    ),
+    "we'll": "We have received your email and we'll get back to you shortly.",
+}
+
+
+@pytest.mark.parametrize("text", AUTO_PROBES.values(), ids=AUTO_PROBES.keys())
+def test_service_promises_from_the_probes_are_auto_replies(text: str) -> None:
+    got = verdict(text)
 
     assert (got.kind, got.rule) == (ReplyKind.AUTO_REPLY, PROMISE)
 

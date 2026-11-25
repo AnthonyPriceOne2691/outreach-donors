@@ -258,3 +258,10 @@ ANSWER_LATER_RE = re.compile(
     re.I,
 )
 CHAT_RATING_RE = compiled(CHAT_RATING)
+
+#: Первое лицо единственного числа — пишет человек: служба о себе говорит «мы» и «команда».
+#: «Thanks, I've forwarded your email to our support team and I'll get back to you shortly»,
+#: «ich habe es an unser Support-Team weitergeleitet, wir melden uns bald» (ревью продаж
+#: 25.11.2026). «I» — только заглавное: строчное «i» — польское «и» и итальянский артикль; «ja»
+#: не берём — это и немецкое, и нидерландское «да».
+FIRST_PERSON_RE = re.compile(r"\bI\b|(?i:\b(?:ich|je|ik|eu|io|yo|я)\b|\bj['’])")

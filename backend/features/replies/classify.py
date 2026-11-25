@@ -50,9 +50,10 @@
 **Служба обещает ответить позже** — автоответчик и без номера заявки (проверка прода
 25.11.2026: среди ответов рекламодателей, ждавших человека, — подтверждения служб
 поддержки без номера, оценка чата и письмо из одной точки). Нужны обещание ответить в срок
-(глагол и срок одной фразой, `ticket_phrases.ANSWER_LATER_RE`) и лицо службы («our support
-team», `SERVICE_TEAM`) или фраза о приёме обращения — и только в коротком письме
-(`PROMISE_MAX_CHARS`). Каждый признак по отдельности пишет и человек: «служба поддержки
+(глагол и срок одной фразой, `ticket_phrases.ANSWER_LATER_RE`) и фраза о приёме обращения
+или лицо службы («our support team», `SERVICE_TEAM`) в той же фразе, что и срок, — только
+в коротком письме (`PROMISE_MAX_CHARS`) и без первого лица единственного числа («I», «ich»,
+«я»): служба о себе говорит «мы». Каждый признак по отдельности пишет и человек: «служба поддержки
 ответит вам», «наша команда посмотрит на следующей неделе», «we have opened a request with
 our procurement department» (ревью продаж 25.11.2026). **Оценка разговора** («Rate your
 conversation») — в письме из одной строки, **письмо из знаков препинания** — «.» (эмодзи и
@@ -121,6 +122,8 @@ _MACHINE_SIGNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: Адрес сайта в теме: «vacationguide.com». Последняя часть — буквы,
 #: чтобы «5.1.1» и «e.g.» адресом не считались.
 _HOST = re.compile(r"\b[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{2,}\b")
+#: Граница фразы: после точки, восклицательного или вопросительного знака — или перевод строки.
+_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
 def _header_says(incoming: Incoming, name: str, *values: str) -> bool:
@@ -265,14 +268,22 @@ def _flat_length(body: str) -> int:
 
 
 def _service_promise(incoming: Incoming, body: str) -> bool:
-    """Служба обещает ответить в срок — и говорит это лицом службы или вместе с фразой о приёме
-    обращения. Только в коротком письме без файла."""
+    """Служба обещает ответить в срок — вместе с фразой о приёме обращения или лицом службы в
+    той же фразе. Только в коротком письме без файла и без «я»: первое лицо — человек."""
     if incoming.has_price_file or _flat_length(body) > PROMISE_MAX_CHARS:
         return False
-    if not ticket_phrases.ANSWER_LATER_RE.search(body):
+    if ticket_phrases.FIRST_PERSON_RE.search(body):
         return False
-    return bool(
-        ticket_phrases.SERVICE_TEAM_RE.search(body) or ticket_phrases.TICKET_RECEIPT_RE.search(body)
+    if ticket_phrases.TICKET_RECEIPT_RE.search(body) and ticket_phrases.ANSWER_LATER_RE.search(
+        body
+    ):
+        return True
+    # Лицо службы и срок — одной фразой: «Our support team uses a similar tool. We'll get back to
+    # you within 2 weeks» — интерес человека, а не подтверждение (ревью продаж 25.11.2026).
+    return any(
+        ticket_phrases.SERVICE_TEAM_RE.search(sentence)
+        and ticket_phrases.ANSWER_LATER_RE.search(sentence)
+        for sentence in _SENTENCE.split(body)
     )
 
 
