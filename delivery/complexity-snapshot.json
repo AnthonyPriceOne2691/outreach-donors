@@ -392,12 +392,12 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 398,
+      "lines": 423,
       "complexity": 7,
-      "worst": "review:307"
+      "worst": "review:332"
     },
     "backend/api/replies/schemas.py": {
-      "lines": 176,
+      "lines": 184,
       "complexity": 4,
       "worst": "_declines_without_price:42"
     },
@@ -697,9 +697,9 @@
       "worst": "redraft:189"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 492,
+      "lines": 495,
       "complexity": 10,
-      "worst": "of:360"
+      "worst": "of:362"
     },
     "backend/api/topics/__init__.py": {
       "lines": 1,
@@ -1397,7 +1397,7 @@
       "worst": "zone_name:80"
     },
     "backend/features/core/domain.py": {
-      "lines": 378,
+      "lines": 391,
       "complexity": 0,
       "worst": "—"
     },
@@ -1482,7 +1482,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 465,
+      "lines": 468,
       "complexity": 0,
       "worst": "—"
     },
@@ -2722,9 +2722,9 @@
       "worst": "inbox_trace:244"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 490,
+      "lines": 493,
       "complexity": 4,
-      "worst": "sent_today:236"
+      "worst": "sent_today:237"
     },
     "backend/features/outreach/senders.py": {
       "lines": 224,
@@ -2737,9 +2737,9 @@
       "worst": "of_reply:52"
     },
     "backend/features/outreach/threads.py": {
-      "lines": 491,
+      "lines": 500,
       "complexity": 13,
-      "worst": "_answer_rules:317"
+      "worst": "_answer_rules:326"
     },
     "backend/features/replies/__init__.py": {
       "lines": 1,
@@ -2817,14 +2817,19 @@
       "worst": "addresses_in:174"
     },
     "backend/features/replies/lead_handoff.py": {
-      "lines": 316,
+      "lines": 318,
       "complexity": 8,
-      "worst": "_card:130"
+      "worst": "_card:132"
     },
     "backend/features/replies/lead_redirect.py": {
-      "lines": 214,
+      "lines": 220,
       "complexity": 6,
-      "worst": "held:141"
+      "worst": "held:145"
+    },
+    "backend/features/replies/lead_refusal.py": {
+      "lines": 32,
+      "complexity": 2,
+      "worst": "refuse:22"
     },
     "backend/features/replies/mime.py": {
       "lines": 430,
@@ -2892,9 +2897,9 @@
       "worst": "_letter_words:71"
     },
     "backend/features/replies/repository.py": {
-      "lines": 486,
+      "lines": 498,
       "complexity": 5,
-      "worst": "domain_of:200"
+      "worst": "domain_of:201"
     },
     "backend/features/replies/robots.py": {
       "lines": 61,

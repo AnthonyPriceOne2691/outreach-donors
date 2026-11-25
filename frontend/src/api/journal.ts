@@ -32,6 +32,7 @@ export type AuditAction =
   | 'suppression_added'
   | 'suppression_removed'
   | 'lead_taken'
+  | 'lead_refused'
   | 'sales_leads_imported'
   | 'agent_settings_changed'
   | 'sales_kb_changed'

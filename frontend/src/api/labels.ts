@@ -94,6 +94,7 @@ export const THREAD_STATES: Record<ThreadState, { title: string; color: string }
   stopped: { title: 'цепочка остановлена', color: 'gray' },
   lead: { title: 'лид — ждёт человека', color: 'yellow' },
   lead_taken: { title: 'лид в работе', color: 'green' },
+  lead_refused: { title: 'лид в отказе', color: 'gray' },
   sales_pending: { title: 'ответ продаж — ждёт человека', color: 'yellow' },
   recheck: { title: 'цену перезапросили — ждём ответа', color: 'lagoon' },
 };

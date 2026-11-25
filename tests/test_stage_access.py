@@ -262,6 +262,7 @@ SALES_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/replies/{reply}/attachments/999999", None, REPLIES),
     ("GET", "/api/replies/{reply}/attachments/999999/text", None, REPLIES),
     ("POST", "/api/replies/{reply}/lead", None, REPLIES),
+    ("POST", "/api/replies/{reply}/lead/refuse", None, REPLIES),
     ("POST", "/api/replies/{reply}/lead/send", None, REPLIES),
     ("PATCH", "/api/replies/{reply}", {"price_white": "300", "currency": "USD"}, REPLIES),
     ("GET", "/api/agent/drafts/{draft}", None, DRAFTS),

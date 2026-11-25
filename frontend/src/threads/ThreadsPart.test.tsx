@@ -108,6 +108,21 @@ describe('части списка диалогов', () => {
     expect(screen.getByRole('button', { name: 'Выгрузить лиды' })).toBeInTheDocument();
   });
 
+  it('«Диалоги с рекламодателями»: лид в отказе — в строке и своим пунктом фильтра', async () => {
+    // «В отказ» рядом с «Взять в работу» (слово владельца 25.11.2026): такой лид не ждёт человека.
+    const refused = thread(5, 'refused.example.test', 'advertisers', 'lead_refused');
+    await open('/threads?stage=advertisers', ADMIN, [...THREADS, refused]);
+    const user = userEvent.setup();
+
+    const row = (await screen.findByText('refused.example.test')).closest('a')!;
+    expect(within(row).getByText('лид в отказе')).toBeInTheDocument();
+    // Выпадающий список Mantine в jsdom — `display: none`: пункты видны запросу с `hidden`.
+    await user.click(screen.getByRole('textbox', { name: 'Состояние' }));
+    expect(
+      await screen.findByRole('option', { name: 'лид в отказе · 1', hidden: true }),
+    ).toBeInTheDocument();
+  });
+
   it('на телефоне имя части — на ступень меньше: «Диалоги с рекламодателями» — одной строкой', async () => {
     vi.spyOn(window, 'matchMedia').mockImplementation(
       (query: string) =>

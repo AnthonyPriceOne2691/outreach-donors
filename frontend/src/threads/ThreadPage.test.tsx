@@ -470,6 +470,7 @@ const LEAD = {
   placement: null,
   needs_review: false,
   lead: true,
+  decision: null,
 };
 
 const LEAD_VIEW = {
@@ -551,11 +552,12 @@ describe('ответ рекламодателя', () => {
     expect(await screen.findByText('Передача в CRM поставлена')).toBeInTheDocument();
   });
 
-  it('без права разбирать ответы лид виден, а кнопки нет', async () => {
+  it('без права разбирать ответы лид виден, а кнопок нет — ни «взять», ни «в отказ»', async () => {
     await openThread(LEAD_VIEW, {}, OPERATOR_WITHOUT_PRICES);
 
     expect(screen.getByText(/цену в нём не разбираем/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Взять в работу' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'В отказ' })).not.toBeInTheDocument();
   });
 });
 

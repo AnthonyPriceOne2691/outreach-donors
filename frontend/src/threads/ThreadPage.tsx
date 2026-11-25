@@ -45,6 +45,7 @@ import { Seams } from '../components/Seams';
 import { shownAddress } from '../hostName';
 import { useFollowThreadPart } from './threadPart';
 import { Composer } from './Composer';
+import { useRefuseLead } from './LeadRefuse';
 import { NextWaiting } from './NextWaiting';
 import { answersReply, RedirectLine } from './RedirectLine';
 import { ReplyDecision } from './ReplyDecision';
@@ -166,6 +167,9 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
     },
     onError: (failure) => notify({ title: 'Не взяли', message: refusalOf(failure), color: 'red' }),
   });
+  // «В отказ» рядом с «Взять в работу» (слово владельца 25.11.2026): лид перестаёт ждать
+  // человека, в CRM не уходит. Итог, отказ и перечитывание — у самой кнопки (`LeadRefuse`).
+  const leadRefuse = useRefuseLead();
 
   const answer = useMutation({
     mutationFn: ({
@@ -237,11 +241,13 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
   // Отказ сервера по разбору этого ответа — над полями разбора, словами.
   const refusalFor = (replyId: number) =>
     confirm.isError && confirm.variables.replyId === replyId ? refusalOf(confirm.error) : null;
+  // По ответу идёт нажатие — любое. Номер ответа у одних нажатий в теле, у других — оно само;
+  // списком, а не цепочкой условий: с «В отказ» цепочка перешла бы предел сложности (10).
+  const withBody = [confirm, answer, leadRefuse];
+  const bare = [lead, handoff];
   const busy = (replyId: number) =>
-    (confirm.isPending && confirm.variables?.replyId === replyId) ||
-    (lead.isPending && lead.variables === replyId) ||
-    (answer.isPending && answer.variables?.replyId === replyId) ||
-    (handoff.isPending && handoff.variables === replyId);
+    withBody.some((one) => one.isPending && one.variables?.replyId === replyId) ||
+    bare.some((one) => one.isPending && one.variables === replyId);
 
   return (
     <Stack gap="sm" {...(split ? { className: 'threadPane' } : {})}>
@@ -323,6 +329,7 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
           }
           refusal={refusalFor(decided.id)}
           onTakeLead={() => lead.mutate(decided.id)}
+          onRefuseLead={() => leadRefuse.mutate({ threadId: data.card.id, replyId: decided.id })}
           onSendLead={() => handoff.mutate(decided.id)}
           onClose={decided.id === picked ? () => setPicked(null) : null}
         />

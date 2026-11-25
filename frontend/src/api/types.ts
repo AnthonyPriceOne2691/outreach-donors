@@ -123,6 +123,7 @@ export type ThreadState =
   | 'stopped'
   | 'lead'
   | 'lead_taken'
+  | 'lead_refused'
   | 'sales_pending'
   | 'recheck';
 
@@ -217,6 +218,8 @@ export interface IncomingCard {
   reviewed_at: string | null;
   /** Ответ рекламодателя — лид: его не разбирают, а берут в работу. */
   lead: boolean;
+  /** `refused` — лид отправлен человеком в отказ (25.11.2026), в CRM не ушёл; иначе — `null`. */
+  decision: 'refused' | null;
   /** Ответ на перезапрос цены без числа — прежняя цена донора для «Цена та же». */
   same_price?: SamePrice | null;
 }

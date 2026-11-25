@@ -53,6 +53,8 @@ export const AUDIT_ACTIONS: Record<AuditAction, string> = {
   suppression_added: 'Добавлено в стоп-лист',
   suppression_removed: 'Снято со стоп-листа',
   lead_taken: 'Лид взят в работу',
+  // Ответ рекламодателя — в отказ (слово владельца 25.11.2026): лид не ждёт человека, в CRM не ушёл.
+  lead_refused: 'Лид отправлен в отказ',
   sales_leads_imported: 'База лидов загружена',
   agent_settings_changed: 'Настройки агента изменены',
   sales_kb_changed: 'База знаний продаж изменена',

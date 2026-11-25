@@ -10,7 +10,13 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from backend.features.core.domain import MessageStatus, ReplyKind, SenderStatus, Stage
+from backend.features.core.domain import (
+    MessageStatus,
+    ReplyDecision,
+    ReplyKind,
+    SenderStatus,
+    Stage,
+)
 from backend.features.core.models.outreach import MessageModel, ReplyModel, SenderModel
 from backend.features.outreach.senders import (
     WARMUP_FIRST_DAY,
@@ -54,6 +60,7 @@ def _reply(
     confidence: float | None = None,
     reviewed: bool = False,
     placement: str | None = None,
+    decision: str | None = None,
 ) -> ReplyModel:
     reply = ReplyModel(
         thread_id=1,
@@ -61,8 +68,9 @@ def _reply(
         raw_body="текст",
         price_white=price,
         confidence=confidence,
-        reviewed_at=NOW if reviewed else None,
+        reviewed_at=NOW if reviewed or decision else None,
         placement=placement,
+        decision=decision,
     )
     reply.created_at = NOW
     return reply
@@ -445,6 +453,44 @@ class TestAdvertiserThreadState:
             [_message(MessageStatus.DELIVERED)],
             [_reply(ReplyKind.HUMAN, reviewed=True), _reply(ReplyKind.HUMAN)],
             Stage.ADVERTISERS,
+        )
+
+        assert summary.state is ThreadState.LEAD
+
+    def test_refused_lead_is_its_own_state(self) -> None:
+        """«В отказ» (слово владельца 25.11.2026): лид не ждёт человека и не «в работе»."""
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, decision=ReplyDecision.REFUSED)],
+            Stage.ADVERTISERS,
+        )
+
+        assert summary.state is ThreadState.LEAD_REFUSED
+        assert summary.answered
+
+    def test_the_last_decided_answer_names_the_state(self) -> None:
+        """Отказ после взятого — «в отказе»; взятый после отказа — «в работе»."""
+        taken = _reply(ReplyKind.HUMAN, reviewed=True)
+        refused = _reply(ReplyKind.HUMAN, decision=ReplyDecision.REFUSED)
+        refused.created_at = NOW + timedelta(days=1)
+        later = _reply(ReplyKind.HUMAN, reviewed=True)
+        later.created_at = NOW + timedelta(days=2)
+        letters = [_message(MessageStatus.DELIVERED)]
+
+        assert summarize(letters, [taken, refused], Stage.ADVERTISERS).state is (
+            ThreadState.LEAD_REFUSED
+        )
+        assert summarize(letters, [taken, refused, later], Stage.ADVERTISERS).state is (
+            ThreadState.LEAD_TAKEN
+        )
+
+    def test_new_answer_after_a_refused_one_waits_again(self) -> None:
+        refused = _reply(ReplyKind.HUMAN, decision=ReplyDecision.REFUSED)
+        fresh = _reply(ReplyKind.HUMAN)
+        fresh.created_at = NOW + timedelta(days=1)
+
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)], [refused, fresh], Stage.ADVERTISERS
         )
 
         assert summary.state is ThreadState.LEAD

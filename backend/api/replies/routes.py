@@ -49,6 +49,7 @@ from backend.api.replies.download import download_headers
 from backend.api.replies.schemas import (
     AttachmentText,
     Calibration,
+    LeadRefused,
     LeadSent,
     LeadTaken,
     ReviewBody,
@@ -64,7 +65,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import ReplyModel
-from backend.features.replies import lead_handoff, unbound
+from backend.features.replies import lead_handoff, lead_refusal, unbound
 from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.calibration import calibrate
 from backend.features.replies.confirmation import (
@@ -270,6 +271,30 @@ async def take_lead(
         _enqueue_lead(reply_id, event_id=f"lead-{reply_id}")
         handoff = "queued"
     return LeadTaken(id=reply_id, reviewed_by=author.email, reviewed_at=taken_at, handoff=handoff)
+
+
+@router.post("/{reply_id}/lead/refuse", response_model=LeadRefused, summary="Лид — в отказ")
+async def refuse_lead(
+    reply_id: int,
+    author: UserModel = _reply_reviewer,
+    session: AsyncSession = Depends(db_session),
+) -> LeadRefused:
+    """Ответ рекламодателя — в отказ (слово владельца 25.11.2026): лид перестаёт ждать человека,
+    в CRM не уходит. Право — как у «взять»: лиды, ждущие человека, разбирает один человек.
+    Уже взятый или уже в отказе — 409 словами (`ReplyRepository.open_lead`)."""
+    repository = ReplyRepository(session)
+    reply = await repository.reply(reply_id)
+    refused_at = await lead_refusal.refuse(repository, reply, by=author.email)
+    await AccessRepository(session).record(
+        AuditAction.LEAD_REFUSED,
+        author_id=author.id,
+        target=f"reply:{reply_id}",
+        details={"действие": "лид — в отказ", "от кого ответ": reply.from_email},
+        stage=await repository.stage_of(reply),
+    )
+    await session.commit()
+    logger.info("лиды: ответ №%s — в отказ", reply_id)
+    return LeadRefused(id=reply_id, reviewed_by=author.email, reviewed_at=refused_at)
 
 
 @router.post("/{reply_id}/lead/send", response_model=LeadSent, summary="Передать лид в CRM ещё раз")

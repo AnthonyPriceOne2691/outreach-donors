@@ -77,9 +77,13 @@ describe('часть списка диалогов', () => {
 
   it('состояния Этапа 2 из адреса — только с правом «Рекламодатели»', () => {
     const asked = new URLSearchParams('stage=donors&state=lead');
+    // Лид в отказе (25.11.2026) — тоже состояние Этапа 2: без права фильтр его не называет.
+    const refused = new URLSearchParams('stage=advertisers&state=lead_refused');
 
     expect(readThreadFilters(asked, NO_SALES).state).toBe('lead');
     expect(readThreadFilters(asked, DONORS_ONLY).state).toBeNull();
+    expect(readThreadFilters(refused, NO_SALES).state).toBe('lead_refused');
+    expect(readThreadFilters(refused, DONORS_ONLY).state).toBeNull();
   });
 
   it('в адрес — первой, а «найдено N из M» её не считает: часть — сам список', () => {

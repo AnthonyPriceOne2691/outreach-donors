@@ -31,7 +31,7 @@ import { IconCheck, IconChecks, IconClock } from '@tabler/icons-react';
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AgentDraftBanner } from '../agent/AgentDraftBanner';
-import { MESSAGE_STATUSES, REPLY_KINDS, SELLER_ANSWERS } from '../api/labels';
+import { MESSAGE_STATUSES, REPLY_KINDS, SELLER_ANSWERS, THREAD_STATES } from '../api/labels';
 import type { LetterDelivery } from '../api/delivery';
 import type { LetterWithFiles } from '../api/files';
 import { PRICE_RECHECK_STEP } from '../api/priceRecheck';
@@ -43,6 +43,7 @@ import { shownAddress } from '../hostName';
 import { deliveryLine } from '../letters/deliveryLine';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
 import { useBottomKept } from './feedBottom';
+import { leadDecided } from './LeadRefuse';
 import { LetterFiles } from './LetterFiles';
 import { ReplyFiles } from './ReplyFiles';
 import { ReplyOffers } from './ReplyOffers';
@@ -205,17 +206,25 @@ function Parsed({
   );
 }
 
-/** Кнопка в пузыре, открывающая разбор под лентой. Разбирать нечего — кнопки нет. */
+/** Кнопка в пузыре, открывающая разбор под лентой. Разбирать нечего — кнопки нет: и у лида в
+ *  отказе — в CRM его не передают, а кто и когда решил, пузырь и так говорит (`ReplyNotes`). */
 function pickLabel(reply: IncomingCard, reviewable: boolean): string | null {
+  if (reply.decision === 'refused') return null;
   if (reply.lead) return reply.reviewed_at === null ? 'Взять лид' : 'Передача лида';
   if (!reviewable) return null;
   return waitsForPerson(reply) ? 'Разобрать' : 'Поправить цену';
 }
 
+/** Значок лида: ждёт человека — или решён, теми же словами, что состояние переписки в списке. */
+function leadMark(reply: IncomingCard): { title: string; color: string } {
+  if (reply.reviewed_at === null) return { title: 'лид', color: 'yellow' };
+  return THREAD_STATES[reply.decision === 'refused' ? 'lead_refused' : 'lead_taken'];
+}
+
 /** Шапка пузыря ответа: кто ответил и что с ответом — значками. */
 function ReplyHead({ reply }: { reply: IncomingCard }) {
   const kind = REPLY_KINDS[reply.kind];
-  const taken = reply.reviewed_at !== null;
+  const mark = leadMark(reply);
   return (
     <Group gap={6} mb={4} wrap="wrap">
       <Text size="xs" fw={600} className="bubbleWho">
@@ -232,8 +241,8 @@ function ReplyHead({ reply }: { reply: IncomingCard }) {
         </Badge>
       )}
       {reply.lead && (
-        <Badge variant="light" color={taken ? 'green' : 'yellow'} size="sm">
-          {taken ? 'лид в работе' : 'лид'}
+        <Badge variant="light" color={mark.color} size="sm">
+          {mark.title}
         </Badge>
       )}
     </Group>
@@ -319,11 +328,11 @@ function ReplyNotes({
           {superseded}
         </Text>
       ) : null}
-      {/* Кто ведёт взятый лид — видно без раскрытия разбора; у открытого разбора
-          это строка под лентой, второй раз её не печатаем. */}
+      {/* Кто ведёт взятый лид или отправил его в отказ — видно без раскрытия разбора; у
+          открытого разбора это строка под лентой, второй раз её не печатаем. */}
       {reply.lead && reply.reviewed_at !== null && !active ? (
         <Text size="sm" c="dimmed" mt="xs">
-          В работе: {reply.reviewed_by}, {when(reply.reviewed_at)}
+          {leadDecided(reply)}
         </Text>
       ) : null}
     </>

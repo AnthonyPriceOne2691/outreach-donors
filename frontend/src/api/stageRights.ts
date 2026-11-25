@@ -32,6 +32,7 @@ const STATE_STAGES: Partial<Record<string, Stage>> = {
   sales_pending: 'sales',
   lead: 'advertisers',
   lead_taken: 'advertisers',
+  lead_refused: 'advertisers',
 };
 
 /** Состояние диалога на экране: состояния этапа — тоже только с его правом. */

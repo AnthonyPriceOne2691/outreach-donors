@@ -44,6 +44,8 @@ REVIEW_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/replies/calibration", None, "view"),
     # Ответы, ждущие человека, разбирает один человек, какого бы этапа они ни были.
     ("POST", "/api/replies/{reply}/lead", None, "prices"),
+    # «В отказ» — тот же человек, что берёт лид в работу.
+    ("POST", "/api/replies/{reply}/lead/refuse", None, "prices"),
     # Передать лид в CRM ещё раз — тот же человек, что ведёт лиды.
     ("POST", "/api/replies/{reply}/lead/send", None, "prices"),
     # Лиды файлом — переписка с адресами: право того, кто ведёт лиды.
