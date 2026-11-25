@@ -16,20 +16,27 @@
  * **Та же строка — у рекламодателей Этапа 2** (06.10.2026): поиск у них тот же,
  * отличаются запросы (`ContactsSource`). Две копии строки разъехались бы на
  * первой правке.
+ *
+ * **«найти» — всем ждущим одним нажатием** (25.11.2026): просит столько, сколько
+ * показывает число, до `SEARCH_ALL_MAX` сервера, — сначала сметой кредитов Hunter у кнопки
+ * (`SearchBudget`). До этого нажатие брало сотню, и тысячи ждущих адреса у рекламодателей
+ * требовали десятков нажатий.
  */
 
-import { Alert, Button, Group, Text } from '@mantine/core';
+import { Alert, Group, Text } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { refusalOf } from '../api/client';
-import { fetchContactsState, searchContacts } from '../api/contacts';
+import { fetchContactsBudget, fetchContactsState, searchContacts } from '../api/contacts';
+import type { ContactsBudget } from '../api/contacts';
 import type { ContactsQueued, ContactsState } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber } from '../format';
 import { JobLine, JobOutcome } from '../jobs/JobLine';
 import { notify } from '../notices';
+import { SearchBudget } from './SearchBudget';
 
 export const CONTACTS_QUERY_KEY = ['contacts-state'] as const;
 
@@ -38,6 +45,8 @@ export interface ContactsSource {
   queryKey: readonly unknown[];
   fetchState: () => Promise<ContactsState>;
   search: (body: { limit: number }) => Promise<ContactsQueued>;
+  /** Смета по кредитам Hunter до «найти» (`SearchBudget`). */
+  budget: (sites: number) => Promise<ContactsBudget>;
   /** У кого-то появились адреса — эти списки перечитываются. */
   refresh: readonly (readonly unknown[])[];
 }
@@ -46,6 +55,7 @@ export const DONOR_CONTACTS: ContactsSource = {
   queryKey: CONTACTS_QUERY_KEY,
   fetchState: fetchContactsState,
   search: searchContacts,
+  budget: fetchContactsBudget,
   refresh: [['donors']],
 };
 
@@ -87,7 +97,7 @@ export function usePendingContacts(source: ContactsSource = DONOR_CONTACTS): Pen
   });
 
   const start = useMutation({
-    mutationFn: () => source.search({ limit: 100 }),
+    mutationFn: (sites: number) => source.search({ limit: sites }),
     onSuccess: async (queued) => {
       setJobId(queued.job_id);
       await queryClient.invalidateQueries({ queryKey: source.queryKey });
@@ -127,16 +137,12 @@ export function usePendingContacts(source: ContactsSource = DONOR_CONTACTS): Pen
             <Text size="sm" c="dimmed" aria-hidden>
               ·
             </Text>
-            <Button
-              variant="subtle"
-              size="compact-sm"
-              className="press"
-              aria-label="найти адреса всем ждущим"
-              loading={start.isPending}
-              onClick={() => start.mutate()}
-            >
-              найти
-            </Button>
+            <SearchBudget
+              pending={data.pending}
+              ask={source.budget}
+              busy={start.isPending}
+              onStart={(sites) => start.mutate(sites)}
+            />
           </>
         )}
       </Group>

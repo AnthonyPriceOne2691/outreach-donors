@@ -123,6 +123,16 @@ class TestContactsJob:
         assert queue.contacts_job_id(broken) is None  # type: ignore[arg-type]
 
 
+class TestContactsJobTimeout:
+    """Потолок задачи поиска адресов — по числу сайтов: «найти» ищет всем ждущим разом."""
+
+    def test_small_pass_keeps_the_queue_hour(self) -> None:
+        assert queue.contacts_job_timeout(100) == queue.JOB_TIMEOUT
+
+    def test_big_pass_gets_time_by_its_sites(self) -> None:
+        assert queue.contacts_job_timeout(2319) == 2319 * queue.CONTACTS_SECONDS_PER_HOST
+
+
 class TestJobAlive:
     def test_no_number_is_unknown(self) -> None:
         assert queue.job_alive(None) is None

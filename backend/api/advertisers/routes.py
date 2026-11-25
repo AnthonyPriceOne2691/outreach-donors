@@ -67,7 +67,14 @@ from backend.api.advertisers.schemas import (
     ReviewQuery,
     ScoringCheckView,
 )
-from backend.api.contacts.schemas import ContactsQueued, ContactsState, SearchBody
+from backend.api.contacts import budget
+from backend.api.contacts.schemas import (
+    SEARCH_ALL_MAX,
+    ContactsBudget,
+    ContactsQueued,
+    ContactsState,
+    SearchBody,
+)
 from backend.api.contacts.search_state import search_state
 from backend.api.deps import actor, db_session, needs
 from backend.api.stage_access import STAGE_TWO
@@ -82,6 +89,7 @@ from backend.shared.queue import (
     CONTACTS_JOB,
     CONTACTS_QUEUE_NAME,
     contacts_job_id,
+    contacts_job_timeout,
     contacts_queue,
     job_alive,
     remember_contacts_job,
@@ -97,7 +105,9 @@ _viewer = Depends(needs(Permission.VIEW))
 _reviewer = Depends(needs(Permission.PRICES))
 _runner = Depends(needs(Permission.RUN))
 
-#: Потолок одного прохода — тот же, что у поиска доноров (`SearchBody`).
+#: Потолок прохода, который ставит сам сервис — после перевода и «пишем» (`_search_soft`).
+#: Кнопка «найти» берёт всех ждущих — до `SEARCH_ALL_MAX` (25.11.2026: тысячи ждущих
+#: адреса, а нажатие брало сотню).
 SEARCH_MAX = 1000
 
 
@@ -257,15 +267,32 @@ def _queue_state(pending: int) -> ContactsState:
     )
 
 
+@router.get(
+    "/contacts/budget", response_model=ContactsBudget, summary="Хватит ли кредитов на поиск"
+)
+async def contacts_budget(
+    sites: int | None = Query(default=None, ge=1, le=SEARCH_ALL_MAX),
+    _: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> ContactsBudget:
+    """Смета поиска адресов по кредитам Hunter — до нажатия «найти» (`api/contacts/budget.py`);
+    без числа — всем ждущим."""
+    pending = await AdvertiserContactRepository(session).pending_count()
+    return await budget.estimate(session, sites if sites is not None else pending)
+
+
 @router.post("/contacts", response_model=ContactsQueued, summary="Найти адреса рекламодателям")
 async def search_contacts(
     body: SearchBody,
     author: UserModel = _runner,
     session: AsyncSession = Depends(db_session),
 ) -> ContactsQueued:
-    """Поставить поиск адресов тем рекламодателям, кому он нужен."""
+    """Поставить поиск адресов тем рекламодателям, кому он нужен: кнопка просит всех ждущих, и
+    проход берёт их всех — до `SEARCH_ALL_MAX`, а не до потолка прохода, который ставит сервис.
+    Кредитов Hunter не хватает — отказ 409 словами, скольким сайтам хватит."""
     pending = await AdvertiserContactRepository(session).pending_count()
-    job_id = await asyncio.to_thread(_search, body.limit)
+    await budget.checked(session, min(body.limit, pending))
+    job_id = await asyncio.to_thread(_search, body.limit, ceiling=SEARCH_ALL_MAX)
     logger.info("рекламодатели: %s поставил поиск адресов, ждут %s", author.email, pending)
     return ContactsQueued(job_id=job_id, pending=pending)
 
@@ -283,23 +310,26 @@ def _search_soft(limit: int, done: str) -> str | None:
         return None
 
 
-def _search(limit: int) -> str:
+def _search(limit: int, *, ceiling: int = SEARCH_MAX) -> str:
     """Поиск адресов рекламодателям — задача поиска доноров по своей очереди.
 
     Идущий поиск не дублируется: второй проход по тем же доменам заплатил
     бы платной ступени дважды (нажали «Перевести» второй раз, пока ищет).
+    Потолок задачи — по числу сайтов прохода (`contacts_job_timeout`).
     """
     running = contacts_job_id(key=ADVERTISER_CONTACTS_JOB_KEY)
     if running is not None and job_alive(running) is True:
         logger.info("рекламодатели: поиск адресов уже идёт (%s) — второй не ставим", running)
         return running
+    taken = min(limit, ceiling)
     job = contacts_queue().enqueue(
         CONTACTS_JOB,
-        min(limit, SEARCH_MAX),
+        taken,
         False,  # браузер: секунды на страницу, у рекламодателей не нужен
         False,  # платная ступень — последней, как у доноров
         None,  # не один донор, а вся очередь
         Stage.ADVERTISERS.value,
+        job_timeout=contacts_job_timeout(taken),
         **with_retries(),
     )
     job_id = str(job.id)

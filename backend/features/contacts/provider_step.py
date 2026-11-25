@@ -40,6 +40,9 @@ from backend.features.core.domain import ContactStatus
 
 logger = logging.getLogger(__name__)
 
+#: Почему ступень встала посреди прохода, выбрав занятые кредиты (`ProviderStep._spend_out`).
+SPENT_REASON = "проход выбрал занятые под него кредиты Hunter"
+
 
 class ProviderStep:
     """Платная ступень одного прохода. Счётчики — общие с лестницей."""
@@ -56,6 +59,11 @@ class ProviderStep:
         self._provider = None if isinstance(provider, PaidUnavailable) else provider
         #: Сервис не пустил посреди прохода — ключ не принят или учётка закрыта (`_close`).
         self.closed: PaidUnavailable | None = None
+        #: Сколько платных запросов занято под проход (`hunter_budget.claim`, `limit`); `None` —
+        #: без счёта, до отказа сервиса, как до общего счёта кредитов.
+        self._budget: int | None = None
+        #: Проход выбрал занятое — дальше ступень не спрашивала (`_spend_out`).
+        self.spent = False
         self._counters = counters
         self._silence = silence
         #: Почему проходу пора встать: сервис ограничил частоту и после повторов не
@@ -90,6 +98,8 @@ class ProviderStep:
         if self.halt:
             # Частота не отпустила на другом домене прохода: этот упёрся бы в тот же лимит.
             return ContactStatus.RATE_LIMITED
+        if self._budget is not None and self._counters.provider_entered >= self._budget:
+            return self._spend_out()
 
         found = await self._ask(self._provider, host)
         if isinstance(found, ContactStatus):
@@ -97,6 +107,19 @@ class ProviderStep:
         for candidate in found:
             collected.add(candidate)
         return None
+
+    def limit(self, budget: int | None) -> None:
+        """Сколько платных запросов можно проходу — занятое под него из общего счёта."""
+        self._budget = budget
+
+    def _spend_out(self) -> ContactStatus:
+        """Запросы прохода дошли до занятых под него кредитов: до конца прохода ступень не
+        спросит, домен — «кончилась квота» с повтором по сроку, как у квоты, кончившейся у
+        сервиса. Счёт запросов — до ответа (`_ask`), поэтому одновременные домены не перебирают."""
+        self.spent = True
+        self.missing = PaidUnavailable(ContactStatus.NO_QUOTA, SPENT_REASON)
+        self._provider = None
+        return ContactStatus.NO_QUOTA
 
     def _close(self, exc: ProviderBlockedError) -> ContactStatus:
         """Ключ не принят или учётку закрыли: до конца прохода ступень не спросит, домен —

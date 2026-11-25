@@ -29,7 +29,7 @@ import httpx
 import pytest
 from backend.api import errors as api_errors
 from backend.config import contacts as contacts_cfg
-from backend.features.contacts import mx
+from backend.features.contacts import hunter_budget, mx
 from backend.features.contacts import repository as contacts_repository
 from backend.features.contacts.provider import Candidate, Quota
 from backend.features.contacts.repository import (
@@ -49,7 +49,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
-from backend.shared.queue import CONTACTS_JOB
+from backend.shared.queue import CONTACTS_JOB, CONTACTS_SECONDS_PER_HOST
 from backend.workers import jobs
 from fastapi import FastAPI
 from httpx import AsyncClient
@@ -70,6 +70,7 @@ CONTACT_STATUS_TS = TYPES_TS.parent / "contactStatus.ts"
 ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/contacts", None, "view"),
     ("POST", "/api/contacts", {}, "run"),
+    ("GET", "/api/contacts/budget", None, "run"),
     ("POST", "/api/contacts/donors/{donor}", None, "run"),
     ("GET", "/api/contacts/forms", None, "view"),
     ("POST", "/api/contacts/forms/{donor}/filled", {"email": "editor@form.example.test"}, "run"),
@@ -93,10 +94,13 @@ class FakeQueue:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
+        #: Параметры постановки у каждого вызова — потолок задачи, повторы.
+        self.options: list[dict[str, Any]] = []
         self.remembered: list[str] = []
 
-    def enqueue(self, job: str, *args: Any, **_: Any) -> object:
+    def enqueue(self, job: str, *args: Any, **options: Any) -> object:
         self.calls.append((job, args))
+        self.options.append(options)
         return type("Job", (), {"id": "job-адрес"})()
 
 
@@ -259,6 +263,68 @@ class TestOneDonor:
         )
         [said] = [record for record in caplog.records if record.name == api_errors.__name__]
         assert vars(said)["error"] == refused
+
+    async def test_general_search_takes_everyone_asked_with_time_by_its_sites(
+        self, client: AsyncClient, operator_token: str, queue: FakeQueue
+    ) -> None:
+        """«найти» у доноров — та же строка, что у рекламодателей (25.11.2026): всех ждущих."""
+        response = await client.post(
+            "/api/contacts", json={"limit": 2500}, headers=bearer(operator_token)
+        )
+
+        assert response.status_code == 200
+        _, args = queue.calls[0]
+        assert inspect.signature(jobs.find_contacts).bind(*args).arguments["limit"] == 2500
+        assert queue.options[0]["job_timeout"] == 2500 * CONTACTS_SECONDS_PER_HOST
+
+    async def test_budget_without_the_paid_step_lets_everyone_go(
+        self, client: AsyncClient, operator_token: str
+    ) -> None:
+        body = (
+            await client.get("/api/contacts/budget?sites=30", headers=bearer(operator_token))
+        ).json()
+
+        assert (body["sites"], body["paid"], body["enough"], body["affordable"]) == (
+            30,
+            False,
+            True,
+            30,
+        )
+
+    async def test_short_of_credits_the_search_is_refused_in_words(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("backend.api.contacts.budget.cfg.PAID_SEARCH_ENABLED", True)
+        monkeypatch.setattr("backend.api.contacts.budget.cfg.HUNTER_API_KEY", "ключ")
+        counted = hunter_budget.Budget(
+            account_left=2000,
+            asked_at=datetime.now(UTC),
+            live=True,
+            reserve=2000,
+            checks_hold=0,
+            held=0,
+        )
+
+        async def budget(*_a: object, **_kw: object) -> hunter_budget.Budget:
+            return counted
+
+        async def fifty(_self: object) -> int:
+            return 50
+
+        monkeypatch.setattr("backend.api.contacts.budget.hunter_budget.budget", budget)
+        monkeypatch.setattr("backend.api.contacts.routes.ContactRepository.pending_count", fifty)
+
+        refused = await client.post(
+            "/api/contacts", json={"limit": 50}, headers=bearer(operator_token)
+        )
+
+        assert refused.status_code == 409
+        assert refused.json()["detail"].startswith("Свободных кредитов Hunter нет: на учётке 2")
+        assert queue.calls == []
 
     async def test_what_the_route_queues_the_job_accepts(
         self, client: AsyncClient, operator_token: str, queue: FakeQueue, waiting: DonorModel
@@ -523,7 +589,16 @@ def ladder(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> FakeProvid
             )
         return httpx.Response(404, text="нет такой страницы")
 
+    async def plenty(*_a: object, **kw: Any) -> tuple[int, str]:
+        # Кредитов вдоволь: общий счёт (`hunter_budget`) проверяет свой набор, а здесь — проход.
+        return hunter_budget.needed(kw["sites"]), "кредитов вдоволь"
+
+    async def release(*_a: object, **_kw: object) -> None:
+        return None
+
     monkeypatch.setattr("backend.features.contacts.search.paid_step", paid)
+    monkeypatch.setattr("backend.features.contacts.hunter_budget.claim", plenty)
+    monkeypatch.setattr("backend.features.contacts.hunter_budget.release", release)
     # Платная ступень доноров — только флагом (решение 12.10.2026), здесь она включена.
     monkeypatch.setattr("backend.config.contacts.PAID_SEARCH_ENABLED", True)
     monkeypatch.setattr("backend.features.contacts.search.PlaywrightRenderer", _NoBrowser)

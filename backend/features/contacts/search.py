@@ -42,11 +42,15 @@ import logging
 from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from typing import TypeGuard
+from uuid import uuid4
 
 import httpx
+from rq import get_current_job
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
+from backend.features.contacts import hunter_budget
 from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.contacts.ladder import ContactLadder, DeepLadder, LadderResult
 from backend.features.contacts.provider import (
@@ -57,12 +61,14 @@ from backend.features.contacts.provider import (
     ProviderError,
     ProviderQuotaError,
 )
+from backend.features.contacts.provider_step import SPENT_REASON
 from backend.features.contacts.repository import ContactQueue, ContactRepository
 from backend.features.contacts.step_counters import StepCounters
 from backend.features.contacts.sweep_trace import TracedRenderer, current_silence, traced, watch
 from backend.features.core import usage
 from backend.features.core.domain import ContactStatus, Stage
 from backend.shared.net.url_guard import guarded_client
+from backend.shared.queue import contacts_job_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +359,10 @@ async def search_contacts(
 ) -> SearchReport:
     """Пройти лестницу по тем, кому нужен контакт.
 
+    Внутри `hunter_budget.shared()` платная ступень тратит только кредиты Hunter, занятые под
+    проход из общего счёта: так ищут доноры и рекламодатели (`workers/jobs.find_contacts`). Вне его
+    — до отказа сервиса, как до общего счёта (сбор базы продаж — своя смета).
+
     `queue` выбирает, по кому идём: доноры или рекламодатели Этапа 2.
     Лестница при этом одна — она работает с голым хостом и про роль
     домена не знает. Две очереди с двумя порядками работы разъехались бы
@@ -394,6 +404,9 @@ async def search_contacts(
             provider = await paid_step(http, report) or report.paid_missing
         elif no_paid and not deep:
             provider = PAID_OFF
+        paid_budget: int | None = None
+        if hunter_budget.counting() and _real(provider):
+            provider, paid_budget = await _claim(session, http, stack, report, provider, len(hosts))
         # Обмен с сайтами учитывается: по нему решается, ответил ли сайт.
         watch(http)
 
@@ -405,6 +418,7 @@ async def search_contacts(
             renderer=await _browser(stack, report) if use_browser else None,
             silence=current_silence,
         )
+        ladder.limit_paid(paid_budget)
 
         keep = _Keeper(session, repository, ladder, stage, report)
         for start in range(0, len(hosts), BATCH):
@@ -425,7 +439,55 @@ async def search_contacts(
         report.counters = ladder.counters.as_report()
         report.manual_queue_left = ladder.manual_queue_left
         _note_closed(report, ladder.paid_closed)
+        if ladder.paid_spent:
+            _note_closed(report, PaidUnavailable(ContactStatus.NO_QUOTA, SPENT_REASON))
         _note_provider_refusal(report, ladder.counters)
 
     logger.info("контакты: %s", report.as_report)
     return report
+
+
+def _real(provider: ContactProvider | PaidUnavailable | None) -> TypeGuard[ContactProvider]:
+    """Платная ступень прохода спросит сервис: она есть и не выключена на этот проход."""
+    return provider is not None and not isinstance(provider, PaidUnavailable)
+
+
+async def _claim(
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    stack: AsyncExitStack,
+    report: SearchReport,
+    provider: ContactProvider,
+    sites: int,
+) -> tuple[ContactProvider | PaidUnavailable, int | None]:
+    """Занять кредиты Hunter под проход (`hunter_budget.claim`): занято — бюджет ступени, доля
+    отдаётся с концом прохода; занять нечего — ступень есть, но проход не спросит, домены —
+    «кончилась квота» (замок не дался — «ошибка поиска»), повтор по сроку."""
+    job = get_current_job()
+    token = f"{job.id if job is not None else 'вне очереди'}:{uuid4().hex[:8]}"
+    try:
+        taken, counted = await hunter_budget.claim(
+            session, http, token=token, sites=sites, ttl_sec=contacts_job_timeout(sites)
+        )
+    except hunter_budget.BudgetBusyError as exc:
+        missing = PaidUnavailable(ContactStatus.ERROR, str(exc))
+        _unavailable(report, missing, missing.reason)
+        return missing, None
+    if taken > 0:
+        stack.push_async_callback(hunter_budget.release, token)
+        free = counted.free if isinstance(counted, hunter_budget.Budget) else taken
+        report.notes.append(f"Кредиты Hunter: проходу занято {taken} из свободных {free}.")
+        return provider, taken
+    said = counted if isinstance(counted, str) else _no_credits(counted)
+    missing = PaidUnavailable(ContactStatus.NO_QUOTA, said)
+    _unavailable(report, missing, said)
+    return missing, None
+
+
+def _no_credits(counted: hunter_budget.Budget) -> str:
+    """Свободных кредитов нет — из чего это сложилось."""
+    return (
+        f"свободных кредитов Hunter нет: на учётке {counted.account_left}, неприкосновенный "
+        f"запас {counted.reserve}, под проверку адресов до конца месяца {counted.checks_hold}, "
+        f"держат идущие поиски {counted.held}"
+    )
