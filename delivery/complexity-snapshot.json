@@ -3672,9 +3672,9 @@
       "worst": "give_up:65"
     },
     "backend/features/sales/plan_store.py": {
-      "lines": 382,
+      "lines": 387,
       "complexity": 7,
-      "worst": "_views:321"
+      "worst": "_views:326"
     },
     "backend/features/sales/plan_tick.py": {
       "lines": 368,

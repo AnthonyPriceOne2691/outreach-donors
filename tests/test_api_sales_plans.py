@@ -168,7 +168,7 @@ async def test_a_sheet_named_as_an_existing_hypothesis_is_refused_in_words(
 
     response = await post(client, URL, headers, {**FORM, "digest": seen["digest"]})
 
-    assert any("переименуйте лист" in words for words in seen["refusals"])
+    assert any("измените поле «Название»" in words for words in seen["refusals"])
     assert response.status_code == 400
     assert "лист «Пилот 1»: имя «Логистика — пример» уже у гипотезы" in response.json()["detail"]
     assert await count(session, SalesPlanModel) == 0

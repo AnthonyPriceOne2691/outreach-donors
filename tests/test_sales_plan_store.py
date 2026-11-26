@@ -188,7 +188,7 @@ async def test_every_rule_is_named_at_once_and_nothing_is_written(session: Async
         "потолок плана обязателен",
         "потолок гипотезы обязателен",
         "лист «Без цели»: имя «Курьеры — пример» уже у гипотезы №",
-        "— переименуйте лист",
+        "— измените поле «Название» на листе (ярлык листа на имя не влияет)",
     ):
         assert said in words
     assert (await count(session, SalesPlanModel), await count(session, SalesHypothesisModel)) == (
