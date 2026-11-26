@@ -173,6 +173,13 @@ SAMPLES: list[tuple[Trouble, str]] = [
         "421 4.7.0 [192.0.2.1] Our system has detected that this message is suspicious due to "
         "the very low reputation of the sending IP address.",
     ),
+    # Низкая репутация нашего домена у большой почтовой службы — о нас, не фильтр организации.
+    (
+        Trouble.BLOCKED,
+        "550-5.7.1 Our system has detected that this message is likely suspicious due to the very "
+        "low reputation of the sending domain. To best protect our users from spam, the message "
+        "has been blocked.",
+    ),
     (
         Trouble.BLOCKED,
         "550 5.7.26 This mail has been blocked because the sender is unauthenticated. All "
@@ -192,6 +199,17 @@ SAMPLES: list[tuple[Trouble, str]] = [
     (Trouble.AUTH_REQUIRED, "550 5.7.1 Relaying denied. Proper authentication required."),
     (Trouble.AUTH_REQUIRED, "530 SMTP authentication is required."),
     (Trouble.AUTH_REQUIRED, "530 5.7.0 Требуется авторизация"),
+    # Шлюз организации судит наш домен по оценке своего поставщика: «reputation» здесь не наш адрес.
+    (
+        Trouble.ORG_FILTER,
+        "554 Your access to this mail system has been rejected due to poor reputation of a domain "
+        "used in message transfer",
+    ),
+    (
+        Trouble.ORG_FILTER,
+        "554 5.7.1 Message rejected due to poor reputation of the domain used in the message "
+        "transfer",
+    ),
     (Trouble.BLOCKED, "450 4.7.25 Client host rejected: cannot find your hostname, [192.0.2.1]"),
     (
         Trouble.BLOCKED,
