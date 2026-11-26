@@ -46,6 +46,17 @@ OUTAGE = (
 TIMEOUT = "error dialing remote address: dial tcp 192.0.2.10:25: i/o timeout"
 NO_USER = "550 5.1.1 The email account that you tried to reach does not exist"
 AUTH = "530 5.7.1 Authentication required"
+#: Шлюз организации получателя судит наш домен по оценке своего поставщика (26.11.2026).
+ORG_GATE = (
+    "554 Your access to this mail system has been rejected due to poor reputation of a domain used "
+    "in message transfer"
+)
+#: Большая почтовая служба — о репутации нашего домена: это о нас.
+LOW_DOMAIN = (
+    "550-5.7.1 Our system has detected that this message is likely suspicious due to the very low "
+    "reputation of the sending domain. To best protect our users from spam, the message has been "
+    "blocked."
+)
 EVENT_TIME = NOW - timedelta(hours=1)
 
 
@@ -107,7 +118,31 @@ def test_the_outage_text_is_silence_and_not_a_missing_server() -> None:
 
 
 def test_only_the_recipient_side_is_not_the_box() -> None:
-    assert {Trouble.RECIPIENT_DNS, Trouble.UNREACHABLE, Trouble.AUTH_REQUIRED} == NOT_THE_BOX
+    assert {
+        Trouble.RECIPIENT_DNS,
+        Trouble.UNREACHABLE,
+        Trouble.AUTH_REQUIRED,
+        Trouble.ORG_FILTER,
+    } == NOT_THE_BOX
+
+
+def test_an_organisation_gate_judging_our_domain_is_its_own_kind() -> None:
+    """Шлюз организации судит наш домен по оценке своего поставщика: свой вид и свои слова, не
+    «отклоняет наш адрес или IP» — пауза ящика её не меняет."""
+    said = reason_of(ORG_GATE)
+
+    assert said.kind is Trouble.ORG_FILTER
+    assert said.words == (
+        "фильтр организации получателя отклоняет наш домен по своей оценке репутации (554)"
+    )
+
+
+def test_a_big_provider_on_our_domain_is_still_about_us() -> None:
+    """Контроль: низкая репутация нашего домена у большой почтовой службы — против ящика, как было."""
+    said = reason_of(LOW_DOMAIN)
+
+    assert said.kind is Trouble.BLOCKED
+    assert said.kind not in NOT_THE_BOX
 
 
 def test_a_server_that_wants_a_login_is_the_recipient_side() -> None:
@@ -156,7 +191,7 @@ def test_refused_kind_is_the_letter_text_and_then_the_last_deferral(
 # --- мягкие сигналы -------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("reason", [OUTAGE, TIMEOUT])
+@pytest.mark.parametrize("reason", [OUTAGE, TIMEOUT, ORG_GATE])
 async def test_a_refusal_on_the_recipient_side_leaves_no_signal(
     session: AsyncSession, reason: str
 ) -> None:
@@ -195,7 +230,7 @@ async def test_a_code_alone_names_the_recipient_side(session: AsyncSession) -> N
 # --- окно отказов ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("reason", [OUTAGE, TIMEOUT, AUTH])
+@pytest.mark.parametrize("reason", [OUTAGE, TIMEOUT, AUTH, ORG_GATE])
 async def test_three_recipient_side_refusals_do_not_pause_the_box(
     session: AsyncSession, reason: str
 ) -> None:
@@ -230,6 +265,21 @@ async def test_refusals_about_the_box_are_counted_past_the_outage(session: Async
     letter = await _fresh(session, box)
 
     report = await apply_events(session, [_said(letter, "bounce", NO_USER)], now=NOW)
+
+    assert report.paused_domains == [box.email]
+    assert box.pause_reason == "отказов 3 в окне 50 писем — порог 5.0%: пауза"
+
+
+async def test_a_big_provider_refusing_our_domain_still_pauses_the_box(
+    session: AsyncSession,
+) -> None:
+    """Контроль к шлюзу организации: три отказа большой почтовой службы за репутацию нашего
+    домена ставят паузу, как раньше, — и рядом со шлюзами организаций в окне."""
+    box = await _box(session, Stage.SALES, total=20)
+    await _refused(session, box, ORG_GATE, ORG_GATE, LOW_DOMAIN, LOW_DOMAIN)
+    letter = await _fresh(session, box)
+
+    report = await apply_events(session, [_said(letter, "bounce", LOW_DOMAIN)], now=NOW)
 
     assert report.paused_domains == [box.email]
     assert box.pause_reason == "отказов 3 в окне 50 писем — порог 5.0%: пауза"

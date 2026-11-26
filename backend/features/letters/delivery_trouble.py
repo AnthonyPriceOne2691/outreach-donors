@@ -35,6 +35,10 @@ mx info». Вид «нет почтового сервера» говорил ч
 приёмный, или анонимная доставка выключена. Это настройка на стороне получателя: письмо не дойдёт,
 сколько ни повторяй, но о нашем ящике оно не говорит. «Unauthenticated» и «not authenticated» — про
 подпись нашего письма (SPF, DKIM, DMARC) и остаются отказом нашему адресу.
+
+**Шлюз организации судит наш домен — не про ящик** (26.11.2026, слово Anthony; `okf/sender-health.md`):
+«…poor reputation of a domain used in message transfer» (Cisco) большие почтовые службы не дают, а
+пауза ящика оценку шлюза не меняет. «Reputation of the sending domain» большой службы — о нас.
 """
 
 from __future__ import annotations
@@ -64,6 +68,7 @@ class Trouble(StrEnum):
     RATE_LIMITED = "rate_limited"
     BLOCKED = "blocked"
     AUTH_REQUIRED = "auth_required"
+    ORG_FILTER = "org_filter"
     TLS = "tls"
     NO_MAILBOX = "no_mailbox"
     SPAM = "spam"
@@ -83,6 +88,7 @@ WORDS: dict[Trouble, str] = {
     Trouble.RATE_LIMITED: "сервер получателя ограничил частоту писем от нас",
     Trouble.BLOCKED: "сервер получателя отклоняет наш адрес или IP",
     Trouble.AUTH_REQUIRED: "сервер получателя не берёт почту извне: просит вход",
+    Trouble.ORG_FILTER: "фильтр организации получателя отклоняет наш домен по своей оценке репутации",
     Trouble.TLS: "сбой шифрования связи с сервером получателя",
     Trouble.NO_MAILBOX: "ящика получателя нет или он отключён",
     Trouble.SPAM: "сервер получателя счёл письмо спамом",
@@ -91,9 +97,11 @@ WORDS: dict[Trouble, str] = {
     Trouble.UNKNOWN: "ответ почты",
 }
 
-#: Причина на стороне получателя: письмо не дошло до его сервера или сервер не берёт почту извне, и о
-#: ящике это не говорит ничего.
-NOT_THE_BOX = frozenset({Trouble.RECIPIENT_DNS, Trouble.UNREACHABLE, Trouble.AUTH_REQUIRED})
+#: Причина на стороне получателя, которую пауза ящика не исправит: письмо не дошло до его сервера,
+#: сервер не берёт почту извне или фильтр организации судит наш домен по оценке своего поставщика.
+NOT_THE_BOX = frozenset(
+    {Trouble.RECIPIENT_DNS, Trouble.UNREACHABLE, Trouble.AUTH_REQUIRED, Trouble.ORG_FILTER}
+)
 
 #: Отказ, в словах которого причины нет: платформа сдалась, а почему — сказала отсрочками раньше.
 GAVE_UP = frozenset({Trouble.UNKNOWN, Trouble.EXPIRED})
@@ -137,6 +145,8 @@ RULES: tuple[tuple[Trouble, re.Pattern[str]], ...] = (
             r"требуется (авторизация|аутентификация)",
         ),
     ),
+    # Шлюз организации судит наш домен (Cisco SDR) — раньше «reputation» отказов нашему адресу.
+    (Trouble.ORG_FILTER, _rx(r"reputation of (a |the )?domain used in (the )?message transfer")),
     # Наш адрес или IP — раньше «нет домена»: «Sender address rejected: Domain not found» — о домене
     # отправителя, а не получателя.
     (
