@@ -306,6 +306,9 @@ class IncomingCard(BaseModel):
 
     id: int
     kind: ReplyKind
+    #: Почему ответ — автоответ (`replies.kind_reason`): правило разбора, у подписи автомата —
+    #: и заголовок. Пусто у других видов и у принятых до 27.11.2026.
+    kind_reason: str | None = None
     raw_body: str
     #: То, что написал человек, — без цитаты нашего письма и подписи
     #: (`replies/quoting.written_by_hand`, то же правило, что у разбора цены).
@@ -381,6 +384,7 @@ class IncomingCard(BaseModel):
         return cls(
             id=reply.id,
             kind=reply.kind,
+            kind_reason=reply.kind_reason,
             raw_body=reply.raw_body,
             fresh_body=written_by_hand(reply.raw_body),
             received_at=reply.created_at,

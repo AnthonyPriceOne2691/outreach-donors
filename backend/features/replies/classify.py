@@ -69,6 +69,12 @@ conversation») — в письме из одной строки, **письмо
 **Смотрим на то, что написал человек, а не на письмо целиком.**
 В цитате лежит наше собственное письмо — поиск по всему тексту находил
 бы в нём наши же слова и приписывал их донору.
+
+**Почему автоответ — лежит у ответа** (`Verdict.reason` → `replies.kind_reason`, 27.11.2026).
+Заголовков письма в базе нет, и спорный автоответ (ответ продаж №201: по тексту — человек, по
+подписи автомата — нет) проверить было нечем. Причина — название правила, а у подписи автомата
+ещё и заголовок с его значением из нашего же списка (`Precedence: bulk`): только наши слова,
+ни строки из письма и ни адреса.
 """
 
 from __future__ import annotations
@@ -93,6 +99,17 @@ class Verdict:
     #: Название сработавшего правила. Пусто — не сработало ни одно,
     #: и письмо считается написанным человеком.
     rule: str | None = None
+    #: Чем именно подписал письмо автомат: заголовок и значение из `_MACHINE_SIGNS`
+    #: («Precedence: bulk»). Пусто у остальных правил — им хватает названия.
+    sign: str | None = None
+
+    @property
+    def reason(self) -> str | None:
+        """Почему ответ — автоответ, словами для экрана (`replies.kind_reason`): правило и
+        подпись автомата. У других видов пусто: их значок причины не спрашивает."""
+        if self.kind is not ReplyKind.AUTO_REPLY or self.rule is None:
+            return None
+        return f"{self.rule} ({self.sign})" if self.sign else self.rule
 
     @property
     def guessed(self) -> bool:
@@ -109,6 +126,8 @@ _Check = Callable[[Incoming, str], bool]
 #: Имя правила «мёртвый ящик»: по нему приём ищет в автоответе новый
 #: адрес донора (`redirect`) — строка в двух местах разошлась бы молча.
 DEAD_MAILBOX = "мёртвый ящик"
+#: Имя правила подписи автомата: у него причина называет и сам заголовок (`Verdict.sign`).
+BY_HEADERS = "автоответчик по заголовкам"
 
 #: Чем автомат подписывает своё письмо: заголовок и значения, из которых
 #: хватит любого. Пустая строка — хватит самого заголовка.
@@ -151,9 +170,19 @@ def _subject(incoming: Incoming) -> str:
     return _HOST.sub(" ", incoming.subject or "")
 
 
+def _machine_sign(incoming: Incoming) -> str | None:
+    """Чем подписал письмо автомат — заголовок и значение из нашего списка («Precedence: bulk»;
+    у заголовка, которому хватает самого себя, — одно имя). Не подписал — `None`."""
+    for name, values in _MACHINE_SIGNS:
+        for value in values:
+            if _header_says(incoming, name, value):
+                return f"{name}: {value}" if value else name
+    return None
+
+
 def _signed_by_machine(incoming: Incoming, _body: str = "") -> bool:
     """Письмо подписал автомат: заголовки, которых живое письмо не несёт."""
-    return any(_header_says(incoming, name, *values) for name, values in _MACHINE_SIGNS)
+    return _machine_sign(incoming) is not None
 
 
 def _from_mail_system(incoming: Incoming) -> bool:
@@ -381,7 +410,7 @@ RULES: tuple[tuple[str, ReplyKind, _Check], ...] = (
     (DEAD_MAILBOX, ReplyKind.BOUNCE, _dead_mailbox),
     ("сумма в тексте важнее фразы", ReplyKind.HUMAN, _sum_outweighs_phrase),
     ("отписка в тексте", ReplyKind.UNSUBSCRIBE, _asks_to_unsubscribe),
-    ("автоответчик по заголовкам", ReplyKind.AUTO_REPLY, _signed_by_machine),
+    (BY_HEADERS, ReplyKind.AUTO_REPLY, _signed_by_machine),
     ("автоответчик по теме", ReplyKind.AUTO_REPLY, _auto_subject),
     ("автоответчик по тексту", ReplyKind.AUTO_REPLY, _absent_in_text),
     ("подтверждение заявки", ReplyKind.AUTO_REPLY, _ticket_receipt),
@@ -402,7 +431,8 @@ def classify(incoming: Incoming) -> Verdict:
     body = written_by_hand(incoming.for_model)
     for name, kind, matches in RULES:
         if matches(incoming, body):
-            return Verdict(kind=kind, rule=name)
+            sign = _machine_sign(incoming) if name == BY_HEADERS else None
+            return Verdict(kind=kind, rule=name, sign=sign)
     return Verdict(kind=ReplyKind.HUMAN)
 
 

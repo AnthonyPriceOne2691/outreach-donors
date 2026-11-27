@@ -217,6 +217,21 @@ async def test_plain_auto_reply_does_not_wait(session: AsyncSession) -> None:
     assert IncomingCard.of(detail.replies[0], detail.row.stage).review_reason is None
 
 
+async def test_card_says_why_it_is_an_auto_reply(session: AsyncSession) -> None:
+    """Карточка ответа несёт причину автоответа (`kind_reason`, 27.11.2026): правило и подпись
+    автомата — переписка показывает её рядом со значком."""
+    sent = await _sent(session)
+    await Inbox(session, now=NOW).accept(_auto_reply(sent, PLAIN))
+    await session.flush()
+    assert sent.thread_id is not None
+
+    detail = await OutreachRepository(session).thread(sent.thread_id)
+    card = IncomingCard.of(detail.replies[0], detail.row.stage)
+
+    assert card.kind_reason == "автоответчик по заголовкам (Auto-Submitted: auto-replied)"
+    assert card.model_dump(mode="json")["kind_reason"] == card.kind_reason
+
+
 async def test_advertiser_auto_reply_with_a_sum_does_not_wait(session: AsyncSession) -> None:
     sent = await _sent(session, Stage.ADVERTISERS)
 

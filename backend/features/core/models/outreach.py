@@ -33,6 +33,8 @@ from backend.features.core.models._mixins import TimestampedMixin
 from backend.features.core.models._mixins import sql_enum as _enum
 from backend.shared.database.base import Base
 
+#: Длина причины вида ответа (`ReplyModel.kind_reason`): название правила и заголовок автомата.
+KIND_REASON_LENGTH = 120
 #: Длина номера события почтовой платформы в журнале здоровья ящика (`sg_event_id`).
 EVENT_ID_LENGTH = 100
 
@@ -375,6 +377,11 @@ class ReplyModel(TimestampedMixin, Base):
     #: отправителю и по цепочке — число отчёта, а до 24.11.2026 оно жило только в журнале
     #: контейнера, который стирает каждая выкатка. Пусто у принятого до поля.
     bound_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: Почему ответ — автоответ (`replies/classify.Verdict.reason`): правило разбора, у подписи
+    #: автомата — и заголовок («автоответчик по заголовкам (Precedence: bulk)»). Заголовков письма
+    #: в базе нет, и без этого спорный автоответ проверить нечем (27.11.2026). Пусто у других видов
+    #: и у принятого до поля.
+    kind_reason: Mapped[str | None] = mapped_column(String(KIND_REASON_LENGTH), nullable=True)
 
     # Что пришло файлами — в `reply_attachments` (`models/attachment.py`),
     # вместе с самими файлами. Прайс приходит вложением чаще, чем текстом,

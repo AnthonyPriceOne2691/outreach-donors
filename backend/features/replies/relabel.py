@@ -9,7 +9,8 @@
 **Что берётся:** ответ человека доноров и рекламодателей, по которому человек ещё не решал:
 не взят, не разобран, не в отказе. Продажи — нет: их ответы ведут свой разбор и свой агент.
 **Что меняется:** только вид ответа — на автоответ, и только по правилу, которое назвало его
-автоответом. Цепочка при живом ответе уже остановлена (`ReplyRepository.stop_chain`) и сама не
+автоответом; правило ложится к ответу причиной (`kind_reason`, 27.11.2026), как у нового письма.
+Цепочка при живом ответе уже остановлена (`ReplyRepository.stop_chain`) и сама не
 возобновляется: службе поддержки добивки не нужны.
 
 Заголовков письма в базе нет: переразбор судит по тексту, теме, адресу и файлам. Правила по
@@ -22,7 +23,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +43,7 @@ class Relabel:
 
     reply_id: int
     stage: Stage
+    #: Правило — оно же причина вида (`kind_reason`): без заголовков `Verdict.reason` — название.
     rule: str
     subject: str
 
@@ -73,9 +75,10 @@ async def candidates(session: AsyncSession) -> list[Relabel]:
 
 
 async def apply(session: AsyncSession, found: Sequence[Relabel]) -> int:
-    """Записать автоответ найденным ответам — одним запросом с теми же условиями, что у показа:
-    между показом и записью человек мог взять ответ в работу или отправить в отказ, и такой ответ
-    не трогается (ревью продаж 25.11.2026). Ответ — сколько записано. Коммит — за вызывающим."""
+    """Записать автоответ найденным ответам — с причиной каждого — одним запросом с теми же
+    условиями, что у показа: между показом и записью человек мог взять ответ в работу или
+    отправить в отказ, и такой ответ не трогается (ревью продаж 25.11.2026). Ответ — сколько
+    записано. Коммит — за вызывающим."""
     if not found:
         return 0
     result = await session.execute(
@@ -86,7 +89,10 @@ async def apply(session: AsyncSession, found: Sequence[Relabel]) -> int:
             ReplyModel.reviewed_at.is_(None),
             ReplyModel.decision.is_(None),
         )
-        .values(kind=ReplyKind.AUTO_REPLY)
+        .values(
+            kind=ReplyKind.AUTO_REPLY,
+            kind_reason=case({item.reply_id: item.rule for item in found}, value=ReplyModel.id),
+        )
     )
     return int(cast("CursorResult[Any]", result).rowcount)
 

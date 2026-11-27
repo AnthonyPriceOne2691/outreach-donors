@@ -24,6 +24,10 @@
  * **Что почта сказала о доставке — строкой под письмом** (29.10.2026, `deliveryLine.ts`):
  * «Доставка откладывается: сервер получателя не отвечает · 14 попыток с 10:26», отказ —
  * словами причины. До этого письмо без исхода стояло одной галочкой «принято платформой».
+ *
+ * **Почему ответ — автоответ — рядом со значком** (27.11.2026, `kind_reason`): правило разбора,
+ * у подписи автомата — и заголовок. Заголовков письма в базе нет, и спорный автоответ иначе
+ * проверить было нечем.
  */
 
 import { Badge, Button, Card, Group, ScrollArea, Stack, Text } from '@mantine/core';
@@ -234,6 +238,11 @@ function ReplyHead({ reply }: { reply: IncomingCard }) {
         <Badge variant="light" color={kind.color} size="sm">
           {kind.title}
         </Badge>
+      )}
+      {reply.kind_reason && (
+        <Text size="xs" c="dimmed">
+          признак: {reply.kind_reason}
+        </Text>
       )}
       {waitsForPerson(reply) && !reply.lead && (
         <Badge variant="light" color="yellow" size="sm">

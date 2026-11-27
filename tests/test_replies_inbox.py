@@ -572,3 +572,62 @@ class TestUnsubscribeIsForeverOnEveryStage:
         await session.flush()
 
         assert await self._rows(session) == [("—", "unsubscribed", True)]
+
+
+class TestKindReason:
+    """Почему ответ — автоответ — ложится к ответу в минуту приёма (`kind_reason`, 27.11.2026):
+    заголовков письма в базе нет, и без неё спорный автоответ проверить нечем."""
+
+    async def test_a_machine_signed_reply_keeps_the_header(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        incoming = reply_from(
+            sent, "Thanks, we will get back to you.", headers={"Precedence": "bulk"}
+        )
+
+        got = await Inbox(session, now=NOW).accept(incoming)
+
+        reply = await session.get(ReplyModel, got.reply_id)
+        assert reply is not None
+        assert reply.kind is ReplyKind.AUTO_REPLY
+        assert reply.kind_reason == "автоответчик по заголовкам (Precedence: bulk)"
+
+    async def test_a_reply_by_words_keeps_the_rule(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        incoming = reply_from(sent, "I am out of the office until Monday.")
+
+        got = await Inbox(session, now=NOW).accept(incoming)
+
+        reply = await session.get(ReplyModel, got.reply_id)
+        assert reply is not None
+        assert reply.kind is ReplyKind.AUTO_REPLY
+        assert reply.kind_reason == "автоответчик по тексту"
+
+    async def test_a_human_reply_has_no_reason(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        got = await Inbox(session, now=NOW).accept(reply_from(sent, "We charge 250 EUR."))
+
+        reply = await session.get(ReplyModel, got.reply_id)
+        assert reply is not None
+        assert reply.kind is ReplyKind.HUMAN
+        assert reply.kind_reason is None
+
+    async def test_an_unbound_auto_reply_keeps_its_reason_too(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        incoming = reply_from(
+            sent,
+            "Thanks, we will get back to you.",
+            labelled=False,
+            sender="robot@elsewhere.test",
+            headers={"Auto-Submitted": "auto-replied (vacation)"},
+        )
+
+        got = await Inbox(session, now=NOW).accept(incoming)
+
+        reply = await session.get(ReplyModel, got.reply_id)
+        assert reply is not None
+        assert not got.bound
+        assert reply.kind_reason == "автоответчик по заголовкам (Auto-Submitted: auto-replied)"

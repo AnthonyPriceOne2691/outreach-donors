@@ -702,9 +702,9 @@
       "worst": "redraft:189"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 495,
+      "lines": 499,
       "complexity": 10,
-      "worst": "of:362"
+      "worst": "of:365"
     },
     "backend/api/topics/__init__.py": {
       "lines": 1,
@@ -1497,7 +1497,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 468,
+      "lines": 475,
       "complexity": 0,
       "worst": "—"
     },
@@ -2797,9 +2797,9 @@
       "worst": "decode:92"
     },
     "backend/features/replies/classify.py": {
-      "lines": 420,
+      "lines": 450,
       "complexity": 8,
-      "worst": "_service_promise:270"
+      "worst": "_service_promise:299"
     },
     "backend/features/replies/confirmation.py": {
       "lines": 122,
@@ -2912,12 +2912,12 @@
       "worst": "_letter_words:71"
     },
     "backend/features/replies/relabel.py": {
-      "lines": 125,
+      "lines": 131,
       "complexity": 6,
-      "worst": "candidates:49"
+      "worst": "candidates:51"
     },
     "backend/features/replies/repository.py": {
-      "lines": 499,
+      "lines": 500,
       "complexity": 5,
       "worst": "domain_of:201"
     },
