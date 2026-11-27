@@ -3927,9 +3927,9 @@
       "worst": "_cleaning:142"
     },
     "backend/features/sales/segment_watch.py": {
-      "lines": 151,
+      "lines": 174,
       "complexity": 5,
-      "worst": "watch:98"
+      "worst": "watch:99"
     },
     "backend/features/sales/segment_window.py": {
       "lines": 498,
