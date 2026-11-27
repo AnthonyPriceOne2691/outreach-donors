@@ -69,14 +69,27 @@ async def _box(session: AsyncSession, stage: Stage, total: int, bounced: int = 0
 async def _events(
     session: AsyncSession, box: SenderModel, *kinds: str, soft: bool = False
 ) -> list[str]:
-    """События по последнему письму ящика; ответ — адреса ящиков, вставших на паузу."""
-    letter = await session.scalar(
-        select(MessageModel.id)
-        .where(MessageModel.sender_id == box.id)
-        .order_by(MessageModel.sent_at.desc())
+    """События — каждое о своём письме ящика, от последнего нетронутого (дошло и не откладывалось):
+    одно письмо даёт один мягкий сигнал (`health`, 27.11.2026). Ответ — адреса ящиков, вставших
+    на паузу."""
+    letters = list(
+        await session.scalars(
+            select(MessageModel.id)
+            .where(
+                MessageModel.sender_id == box.id,
+                MessageModel.status == MessageStatus.DELIVERED,
+                MessageModel.deferred_since.is_(None),
+            )
+            .order_by(MessageModel.sent_at.desc())
+            .limit(len(kinds))
+        )
     )
+    assert len(letters) == len(kinds), "у ящика меньше нетронутых писем, чем событий"
     at = NOW - timedelta(hours=1)  # время платформы: сутки сигнала — от него, а не от прихода
-    found = [DeliveryEvent(kind, letter, "x@to.example.test", soft=soft, at=at) for kind in kinds]
+    found = [
+        DeliveryEvent(kind, letter, "x@to.example.test", soft=soft, at=at)
+        for kind, letter in zip(kinds, letters, strict=True)
+    ]
     return (await apply_events(session, found, now=NOW)).paused_domains
 
 
@@ -90,7 +103,7 @@ async def _journal(session: AsyncSession, box: SenderModel) -> list[str]:
 
 
 async def test_a2_three_soft_signals_cut_the_box_for_a_day(session: AsyncSession) -> None:
-    box = await _box(session, Stage.SALES, total=1)
+    box = await _box(session, Stage.SALES, total=3)
 
     await _events(session, box, "deferred", "deferred")
     two = await health.cuts(session, Stage.SALES, NOW)

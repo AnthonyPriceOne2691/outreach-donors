@@ -36,6 +36,7 @@ from backend.features.replies.pipeline import Inbox
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor, make_sender
+from tests.test_recipient_side import ORG_GATE
 from tests.thread_letters import weekday
 
 NOW = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
@@ -134,6 +135,29 @@ class TestAfterTheBounce:
         # Второе письмо уходит тем же путём, что первое.
         await Sending(session, transport, now=NOW).send(second.id)
         assert [outgoing.to for outgoing in transport.handed] == [INFO, EDITOR]
+
+    async def test_organisation_gate_refusal_keeps_the_address_and_holds_the_site(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Шлюз организации отклонил наш домен (27.11.2026): адрес жив, а следующего письма на
+        `editor@` нет — тот же шлюз отклонит и его. Сайт держит не дошедшее письмо, как
+        дошедшее."""
+        await _donor_with_two_addresses(session)
+        await make_sender(session, "anna@mail-a.example.test")
+        first = await _sent(session, RecordingTransport())
+
+        await apply_events(
+            session,
+            [DeliveryEvent("bounce", first.id, INFO, reason=ORG_GATE)],
+            now=NOW,
+        )
+
+        await session.refresh(first)
+        assert first.status is MessageStatus.BOUNCED
+        contact = await session.get(ContactModel, first.contact_id)
+        assert contact is not None
+        assert contact.verification_status != DEAD
+        assert await _build(session) is None
 
     async def test_dead_mailbox_autoreply_sends_the_next_letter(
         self, session: AsyncSession, filled_legal: None

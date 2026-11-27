@@ -30,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
 from tests.test_delivery_events_foreign import LeadMail
+from tests.test_recipient_side import ORG_GATE
 from tests.test_sales_stage_bridge import LEAD_EMAIL
 from tests.test_sales_stage_mail import LEAD, World, sales_world
 
@@ -104,6 +105,20 @@ class TestDeliveryEvent:
 
         assert all(status != DEAD for status, _ in await _marks(session, LEAD_EMAIL))
         assert (await _letter_contact(session, world)).verification_status != DEAD
+
+    async def test_an_organisation_gate_judging_our_domain_buries_nothing(
+        self, session: AsyncSession, world: World
+    ) -> None:
+        """Шлюз организации отклонил наш домен (27.11.2026) — жёстким отказом, а адрес жив:
+        его не судили."""
+        report = await apply_events(
+            session,
+            [DeliveryEvent("bounce", world.letter.id, LEAD_EMAIL, reason=ORG_GATE)],
+            now=NOW,
+        )
+
+        assert report.bounced == 1
+        assert all(status != DEAD for status, _ in await _marks(session, LEAD_EMAIL))
 
 
 class TestReply:

@@ -120,7 +120,7 @@ async def test_the_cut_halves_what_the_warmup_allows_today(
 ) -> None:
     """Снижение — от сегодняшней ступени разгона, а не от дневного потолка: ящик на первой ступени
     сверх неё не получит ни письма."""
-    box = await _box(session, Stage.DONORS, total=1)
+    box = await _box(session, Stage.DONORS, total=3)
     await _warmed(box, days)
 
     await _events(session, box, "deferred", "deferred", "deferred")

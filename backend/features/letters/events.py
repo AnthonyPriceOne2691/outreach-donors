@@ -205,10 +205,12 @@ async def _listen(
     moment: datetime,
     report: EventReport,
 ) -> None:
-    """Событие — ящику письма: его судит политика этапа (`outreach/health.py`)."""
+    """Событие — ящику письма: его судит политика этапа (`outreach/health.py`). Письмо, которое
+    уже откладывалось, нового мягкого сигнала не даёт: отсрочку у письма пишут после журнала."""
     if message.sender_id is None:
         return
-    paused = await health.listen(session, message.sender_id, event, moment)
+    repeat = message.deferred_since is not None
+    paused = await health.listen(session, message.sender_id, event, moment, repeat=repeat)
     if paused is not None:
         report.pauses.append(paused)
 
@@ -331,10 +333,17 @@ async def _apply_one(
         await _complained(session, message, event, report)
 
 
+#: Отказы, после которых адрес жив. Молчание DNS получателя — письмо до его сервера не дошло. Шлюз
+#: организации судит наш домен, а не адрес (27.11.2026): проверка такие адреса обычно подтверждает,
+#: а мёртвый адрес закрыл бы человека всем трём направлениям.
+ADDRESS_ALIVE = frozenset({Trouble.RECIPIENT_DNS, Trouble.ORG_FILTER})
+
+
 async def _bounced(
     session: AsyncSession, message: MessageModel, event: DeliveryEvent, report: EventReport
 ) -> None:
-    """Письмо не дошло. Мягкий отказ и молчание DNS получателя адрес не хоронят."""
+    """Письмо не дошло. Мягкий отказ, молчание DNS получателя и шлюз организации, который судит
+    наш домен (`ADDRESS_ALIVE`), адрес не хоронят."""
     if message.status is not MessageStatus.BOUNCED:
         message.status = MessageStatus.BOUNCED
         report.bounced += 1
@@ -342,7 +351,7 @@ async def _bounced(
     # Добивку слать некуда: следующий шаг цепочки гасится вместе с адресом.
     message.next_action_at = None
 
-    if event.soft or reason_of(event.reason, status=event.status).kind is Trouble.RECIPIENT_DNS:
+    if event.soft or reason_of(event.reason, status=event.status).kind in ADDRESS_ALIVE:
         return
     if await _stage_of(session, message) is Stage.SALES:
         # Письмо продаж ушло лиду переписки (`stages.recipient`), а контакт письма — тот,
