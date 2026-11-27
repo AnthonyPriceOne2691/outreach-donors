@@ -216,11 +216,11 @@ def dead(letter: _Letter) -> ColumnElement[bool]:
 
 
 def org_refused(letter: _Letter) -> ColumnElement[bool]:
-    """Письмо отклонил шлюз организации получателя за репутацию нашего домена (шапка модуля)."""
-    return and_(
-        letter.status == MessageStatus.BOUNCED,
-        func.coalesce(letter.failure_reason, "").op("~*")(ORG_FILTER_TEXT),
-    )
+    """Письмо отклонил шлюз организации получателя за репутацию нашего домена (шапка модуля).
+    Пробелы и переносы причины схлопнуты, как у вида причины в Python (`delivery_trouble`): иначе
+    текст шлюза с переносом строки Python узнал бы, а отбор — нет, и открыл бы следующий адрес."""
+    said = func.regexp_replace(func.coalesce(letter.failure_reason, ""), r"\s+", " ", "g")
+    return and_(letter.status == MessageStatus.BOUNCED, said.op("~*")(ORG_FILTER_TEXT))
 
 
 def live_letter(domain_id: _DomainId) -> ColumnElement[bool]:

@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from backend.features.contacts.preference import DEAD
 from backend.features.core.domain import (
     ContactSource,
@@ -136,19 +137,24 @@ class TestAfterTheBounce:
         await Sending(session, transport, now=NOW).send(second.id)
         assert [outgoing.to for outgoing in transport.handed] == [INFO, EDITOR]
 
+    @pytest.mark.parametrize(
+        "said",
+        [ORG_GATE, ORG_GATE.replace(" used in ", " used\n  in ")],
+        ids=["строкой", "с переносом"],
+    )
     async def test_organisation_gate_refusal_keeps_the_address_and_holds_the_site(
-        self, session: AsyncSession, filled_legal: None
+        self, session: AsyncSession, filled_legal: None, said: str
     ) -> None:
         """Шлюз организации отклонил наш домен (27.11.2026): адрес жив, а следующего письма на
         `editor@` нет — тот же шлюз отклонит и его. Сайт держит не дошедшее письмо, как
-        дошедшее."""
+        дошедшее, — и когда текст шлюза пришёл с переносом строки (ревью продаж)."""
         await _donor_with_two_addresses(session)
         await make_sender(session, "anna@mail-a.example.test")
         first = await _sent(session, RecordingTransport())
 
         await apply_events(
             session,
-            [DeliveryEvent("bounce", first.id, INFO, reason=ORG_GATE)],
+            [DeliveryEvent("bounce", first.id, INFO, reason=said)],
             now=NOW,
         )
 
