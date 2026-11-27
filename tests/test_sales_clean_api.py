@@ -148,6 +148,19 @@ class _Redis:
         return {}
 
 
+class _NoExecutions:
+    """Реестры выполнений задачи, которые чистит уборка мёртвой задачи
+    (`segment_watch._forget_executions`): у подделки выполнений нет. Выполнения и их строки в rq
+    проверяет набор на настоящих классах rq (`test_sales_dead_job_executions.py`)."""
+
+    key = "rq:executions:подделка"
+
+    @staticmethod
+    def get_job_and_execution_ids(cleanup: bool = True) -> list[tuple[str, str]]:
+        assert not cleanup, "чтение реестра запустило бы обслуживание rq"
+        return []
+
+
 class _Job:
     """Задача rq, какой её видят постановка и строка задачи: статус, удаление следа и итог —
     по номеру из Redis, а не из самой задачи."""
@@ -161,6 +174,7 @@ class _Job:
         self.deleted = False
         self.retries_left = 3
         self.ended_at = None
+        self.started_job_registry = self.execution_registry = _NoExecutions()
 
     def get_status(self, **_options: object) -> JobStatus:
         return self.status

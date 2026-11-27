@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import NoSuchJobError
+from rq.executions import Execution
 from rq.job import Job, JobStatus
 from rq.results import Result
 
@@ -142,9 +143,31 @@ def drop_dead_job(jobs: Queue, job_id: str) -> bool:
     if job_alive(job_id, redis=jobs.connection) is not False:
         return False
     Result.delete_all(found)
+    _forget_executions(found)
     found.delete()
     logger.warning(
         "продажи: задача «идёт», а её воркер умер — убрана перед новой постановкой",
         extra={"job_id": job_id},
     )
     return True
+
+
+def _forget_executions(found: Job) -> None:
+    """Выполнения задачи, чей воркер умер, — убрать до `delete()`: rq 2.12 их так не уберёт.
+
+    Запись выполнения (`rq:execution:…`) живёт пульсом воркера, а строка о нём в реестре
+    выполнений задачи — на 60 с дольше. В эту минуту `delete()` спотыкается о строку без записи:
+    ValueError «Execution … not found in Redis», и проход конвейера плана падает (прод 27.11).
+    Строку выполнения в реестре идущих (`rq:wip:<очередь>`) `delete()` убирает только у
+    выполнений, чьи записи нашлись, — после той минуты ни у одного, и просроченная строка
+    остаётся. Обслуживание rq берёт из неё номер задачи и находит уже новую задачу под тем же
+    номером: «брошена» — и ставит её повтором поверх идущего прохода (прод 27.11: прогон прошёл
+    дважды). Воркер умер — мертвы все выполнения задачи: строки снимаются по номеру задачи, без
+    чтения записей; `cleanup=False` — иначе само чтение реестра запустило бы то обслуживание."""
+    started = found.started_job_registry
+    for job_id, execution_id in started.get_job_and_execution_ids(cleanup=False):
+        if job_id == found.id:
+            execution = Execution(execution_id, job_id, connection=found.connection)
+            started.remove_execution(execution)
+            found.connection.delete(execution.key)
+    found.connection.delete(found.execution_registry.key)
