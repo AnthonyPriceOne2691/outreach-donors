@@ -21,6 +21,22 @@
 # здесь добавлены политики перезапуска задач и потолок логов: журнал
 # json-file без ротации однажды съедает диск, и происходит это на той
 # же машине, где лежит база.
+#
+# **Журналы переживают выкатку** (27.11.2026). Журнал json-file удаляется
+# вместе с контейнером, а выкатка пересоздаёт контейнеры: что было до неё,
+# прочитать было уже нельзя. Сервисы, которые выкатка пересоздаёт, пишут
+# в системный журнал машины (`x-journal`, journald): записи остаются под
+# именем контейнера, и новый контейнер с тем же именем продолжает их
+# (`journalctl CONTAINER_NAME=<имя> -o cat`, `deploy/README.md`). Размер
+# держит journald: по умолчанию не больше 10 % диска и 4 ГБ, старое уходит
+# первым. База, Redis и migrate остались на json-file с потолком: выкатка
+# их не пересоздаёт, а смена драйвера перезапустила бы базу.
+
+x-journal: &journal
+  driver: journald
+  options:
+    # Имя контейнера — и в SYSLOG_IDENTIFIER: `journalctl -t <имя>` тоже находит.
+    tag: "{{.Name}}"
 
 services:
   postgres:
@@ -64,7 +80,7 @@ services:
   api:
     mem_limit: 1g
     cpus: 2.0
-    logging: *logs
+    logging: *journal
 
   # Воркеру достаётся больше всех: он собирает письма (вызовы модели),
   # ходит за выдачей и метриками и поднимает браузер на ступени поиска
@@ -73,33 +89,33 @@ services:
   worker:
     mem_limit: 3g
     cpus: 3.0
-    logging: *logs
+    logging: *journal
 
   # Воркер ответов продаж: один процесс, вызов модели на ответ. Лимиты — как
   # у копии обходчика: оценка до первого `docker stats`, не замер.
   worker-sales:
     mem_limit: 1536m
     cpus: 1.0
-    logging: *logs
+    logging: *journal
 
   # Долгие задачи продаж: пачка, сборка, сбор базы, очистка — по одной за раз. Лимиты —
   # как у воркера ответов: оценка до первого `docker stats`, не замер.
   worker-sales-bulk:
     mem_limit: 1536m
     cpus: 1.0
-    logging: *logs
+    logging: *journal
 
   # Короткие задачи и поиск адресов — по одному процессу; лимиты — как у воркеров продаж:
   # оценка до первого `docker stats`, не замер.
   worker-quick:
     mem_limit: 1536m
     cpus: 1.0
-    logging: *logs
+    logging: *journal
 
   worker-contacts:
     mem_limit: 1536m
     cpus: 1.0
-    logging: *logs
+    logging: *journal
 
   # На копию обходчика — один донор: страницы в памяти по одной, ссылки
   # уходят пачками. Полтора гигабайта — с запасом под браузер, если его
@@ -115,17 +131,17 @@ services:
   crawler:
     mem_limit: 1536m
     cpus: 0.75
-    logging: *logs
+    logging: *journal
 
   reaper:
     mem_limit: 256m
     cpus: 0.5
-    logging: *logs
+    logging: *journal
 
   followups:
     mem_limit: 256m
     cpus: 0.5
-    logging: *logs
+    logging: *journal
 
   web:
     ports: !override
@@ -134,4 +150,4 @@ services:
       - "127.0.0.1:${WEB_PORT:-8090}:80"
     mem_limit: 256m
     cpus: 0.5
-    logging: *logs
+    logging: *journal
