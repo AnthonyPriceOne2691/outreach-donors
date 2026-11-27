@@ -97,6 +97,21 @@ async def _letter(session: AsyncSession, box: SenderModel) -> int:
     return int(found)
 
 
+async def _letters(session: AsyncSession, box: SenderModel, count: int) -> list[int]:
+    """Последние `count` писем ящика, от нового к старому: одно письмо даёт один мягкий сигнал
+    (`health`, 27.11.2026), и события о разных сигналах — о разных письмах."""
+    found = list(
+        await session.scalars(
+            select(MessageModel.id)
+            .where(MessageModel.sender_id == box.id)
+            .order_by(MessageModel.sent_at.desc())
+            .limit(count)
+        )
+    )
+    assert len(found) == count
+    return found
+
+
 async def _rows(session: AsyncSession, box_id: int) -> list[tuple[str, str | None]]:
     """Журнал ящика: вид строки и номер события."""
     found = await session.execute(
@@ -162,9 +177,9 @@ async def test_2_repeat_is_known_before_the_write(
 ) -> None:
     """Повтор узнаётся проверкой «уже в журнале» до записи: вторая доставка не пробует вставить
     строку. Уникальный индекс — страховка гонки, а не путь каждого повтора."""
-    box = await _box(session, Stage.SALES, total=1)
-    letter = await _letter(session, box)
-    batch = [_event("deferred", letter, "sg-2-a"), _event("blocked", letter, "sg-2-b")]
+    box = await _box(session, Stage.SALES, total=2)
+    one, two = await _letters(session, box, 2)
+    batch = [_event("deferred", one, "sg-2-a"), _event("blocked", two, "sg-2-b")]
     first = await _deliver(client, key, batch)
 
     with _journal_inserts(session) as tried:
@@ -193,12 +208,12 @@ def _meet_after_the_check(monkeypatch: pytest.MonkeyPatch, number: str) -> None:
     monkeypatch.setattr(health, "_known", check_then_meet)
 
 
-async def _two_boxes(factory: async_sessionmaker[AsyncSession]) -> tuple[int, int, int]:
-    """Ящик продаж и ящик доноров, по письму у каждого, — зафиксированы."""
+async def _two_boxes(factory: async_sessionmaker[AsyncSession]) -> tuple[int, list[int], int]:
+    """Ящик продаж с тремя письмами и ящик доноров с одним — зафиксированы."""
     async with factory() as session:
-        sales = await _box(session, Stage.SALES, total=1)
+        sales = await _box(session, Stage.SALES, total=3)
         donors = await _box(session, Stage.DONORS, total=1)
-        found = sales.id, await _letter(session, sales), await _letter(session, donors)
+        found = sales.id, await _letters(session, sales, 3), await _letter(session, donors)
         await session.commit()
         return found
 
@@ -219,9 +234,9 @@ async def test_3_two_deliveries_of_one_batch_at_once_answer_200_and_write_once(
     идёт дальше (события продаж за ним и событие донора), ответ — 200, а не 500 на всю пачку."""
     caplog.set_level(logging.INFO, logger=health.__name__)
     async with committed_sessions() as factory:
-        box, letter, donor_letter = await _two_boxes(factory)
+        box, letters, donor_letter = await _two_boxes(factory)
         _meet_after_the_check(monkeypatch, "sg-3-1")
-        batch = [_event("deferred", letter, f"sg-3-{n}") for n in (1, 2, 3)]
+        batch = [_event("deferred", letter, f"sg-3-{n}") for n, letter in enumerate(letters, 1)]
         batch.append(_event("bounce", donor_letter, "sg-3-donor"))
 
         async def per_request() -> AsyncIterator[AsyncSession]:
@@ -279,10 +294,10 @@ async def test_3_only_the_event_index_counts_as_heard(
 async def test_4_same_batch_twice_writes_each_event_once_and_cuts_the_limit_once(
     client: AsyncClient, session: AsyncSession, key: Any
 ) -> None:
-    box = await _box(session, Stage.SALES, total=1)
-    letter = await _letter(session, box)
-    batch = [_event("deferred", letter, f"sg-4-{n}") for n in (1, 2)]
-    batch.append(_event("bounce", letter, "sg-4-3", type="blocked"))
+    box = await _box(session, Stage.SALES, total=3)
+    one, two, three = await _letters(session, box, 3)
+    batch = [_event("deferred", letter, f"sg-4-{n}") for n, letter in ((1, one), (2, two))]
+    batch.append(_event("bounce", three, "sg-4-3", type="blocked"))
 
     for _ in range(2):
         answer = await _deliver(client, key, batch)
@@ -299,10 +314,12 @@ async def test_4_same_batch_twice_writes_each_event_once_and_cuts_the_limit_once
     ]
 
 
-async def test_4_without_numbers_a_repeat_goes_as_before(
+async def test_4_without_numbers_a_repeat_of_one_letter_is_still_one_signal(
     client: AsyncClient, session: AsyncSession, key: Any
 ) -> None:
-    """Без номера отсеять повтор нечем — как до правки: строки повтора пишутся снова."""
+    """Без номера повтор события по номеру не отсеять, но отсрочка письма, которое уже
+    откладывалось, — не новый сигнал (27.11.2026): до этого правила здесь было четыре строки
+    и снижение лимита."""
     box = await _box(session, Stage.SALES, total=1)
     letter = await _letter(session, box)
 
@@ -310,7 +327,8 @@ async def test_4_without_numbers_a_repeat_goes_as_before(
         answer = await _deliver(client, key, [_event("deferred", letter)] * 2)
         assert answer.status_code == 200, answer.text
 
-    assert await _journal(session, box) == ["deferred"] * 3 + ["limit_cut", "deferred"]
+    assert await _journal(session, box) == ["deferred"]
+    assert await health.cuts(session, Stage.SALES, NOW) == {}
 
 
 # --- 5: доноры ------------------------------------------------------------------------------

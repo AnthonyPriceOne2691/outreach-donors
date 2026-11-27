@@ -184,6 +184,8 @@ export interface ReplyAttachment {
 export interface IncomingCard {
   id: number;
   kind: ReplyKind;
+  /** Почему ответ — автоответ: правило разбора, у подписи автомата — и заголовок. */
+  kind_reason?: string | null;
   raw_body: string;
   /** То, что написал человек, — без цитаты нашего письма и подписи (то же правило,
    *  что у разбора цены). Экран показывает его, письмо целиком — по раскрытию.

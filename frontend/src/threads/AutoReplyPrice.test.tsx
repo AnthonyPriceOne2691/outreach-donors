@@ -5,6 +5,9 @@
  * без формы цены: «ждёт разбора» у диалога было бы, а вписать цену было бы
  * некуда. Сервер называет причину (`review_reason`), и по ней карточка
  * даёт форму — с объяснением, а не с неправдой про «уверенность разбора».
+ *
+ * Рядом со значком «автоответчик» — почему он автоответ (`kind_reason`, 27.11.2026): правило
+ * разбора, у подписи автомата — и заголовок. Без причины (принят до поля) строки нет.
  */
 
 import { screen } from '@testing-library/react';
@@ -125,5 +128,26 @@ describe('автоответ с суммой', () => {
     });
 
     expect(screen.queryByRole('button', { name: 'Подтвердить' })).not.toBeInTheDocument();
+  });
+});
+
+describe('причина автоответа', () => {
+  it('стоит рядом со значком: правило и заголовок автомата', async () => {
+    await openThread({
+      ...PRICED_AUTO_REPLY,
+      kind_reason: 'автоответчик по заголовкам (Precedence: bulk)',
+    });
+
+    expect(screen.getByText('автоответчик')).toBeInTheDocument();
+    expect(
+      screen.getByText('признак: автоответчик по заголовкам (Precedence: bulk)'),
+    ).toBeInTheDocument();
+  });
+
+  it('без причины — ответ принят до поля — строки нет', async () => {
+    await openThread({ ...PRICED_AUTO_REPLY, kind_reason: null });
+
+    expect(screen.getByText('автоответчик')).toBeInTheDocument();
+    expect(screen.queryByText(/^признак:/)).not.toBeInTheDocument();
   });
 });

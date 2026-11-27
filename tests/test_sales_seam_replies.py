@@ -102,14 +102,14 @@ async def test_events_batch_repeated_by_the_platform_counts_soft_signals_once(
     monkeypatch.setattr(stages._SALES, "load", None)
     found = FakeSalesMail(rules=MailPolicy(soft=SoftSignals(), watch=True))
     stages.register_sales(lambda: found)
-    box = await _box(session, Stage.SALES, total=1)
-    letter = await session.scalar(select(MessageModel.id).where(MessageModel.sender_id == box.id))
+    box = await _box(session, Stage.SALES, total=2)
+    letters = await session.scalars(select(MessageModel.id).where(MessageModel.sender_id == box.id))
     await session.commit()
     private, public = _keypair()
     monkeypatch.setattr("backend.config.outreach.EVENTS_PUBLIC_KEY", public)
     batch = [
         {"event": "deferred", "message_id": str(letter), "sg_event_id": f"seam-r2-{n}"}
-        for n in (1, 2)
+        for n, letter in enumerate(letters.all(), 1)
     ]
     payload = json.dumps(batch).encode()
 

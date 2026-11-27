@@ -18,6 +18,12 @@
 похоронили (`preference.DEAD`). Письмо в очереди и в пути живое при
 любом адресе: пока исход неизвестен, второго не собираем.
 
+**Письмо, которое отклонил шлюз организации за репутацию нашего домена, — «писали»**
+(`delivery_trouble.ORG_FILTER`, 27.11.2026). Оно не дошло, но следующий адрес той же организации
+упрётся в тот же шлюз: он судит наш домен, а не ящик получателя. Поэтому такое письмо держит
+сайт, как дошедшее (`live_letter`), а адрес не хоронится (`events.ADDRESS_ALIVE`). Другим
+направлениям оно сайт не занимает: «живое» для них — по-прежнему `dead`.
+
 **Письмо, остановленное снятием своей ссылки, — как будто его не было**
 (`withdrawn`, сверка ТЗ 11.10.2026). Оффер рекламодателю пишется под найденную
 ссылку; человек сказал «не пишем» про ссылку, под которую письмо собрано, а на
@@ -81,6 +87,11 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.letters.chain import FIRST_STEP
+from backend.features.letters.delivery_trouble import RULES, Trouble
+
+#: Образец отказа шлюза организации — тот же, что называет вид причины (`delivery_trouble.RULES`):
+#: в базе он сверяется без учёта регистра (`~*`), как `re.IGNORECASE` там.
+ORG_FILTER_TEXT = next(rule.pattern for kind, rule in RULES if kind is Trouble.ORG_FILTER)
 
 #: Сколько адресов сайта пробуем первым письмом, прежде чем остановиться.
 MAX_ADDRESSES = 3
@@ -204,10 +215,20 @@ def dead(letter: _Letter) -> ColumnElement[bool]:
     )
 
 
+def org_refused(letter: _Letter) -> ColumnElement[bool]:
+    """Письмо отклонил шлюз организации получателя за репутацию нашего домена (шапка модуля).
+    Пробелы и переносы причины схлопнуты, как у вида причины в Python (`delivery_trouble`): иначе
+    текст шлюза с переносом строки Python узнал бы, а отбор — нет, и открыл бы следующий адрес."""
+    said = func.regexp_replace(func.coalesce(letter.failure_reason, ""), r"\s+", " ", "g")
+    return and_(letter.status == MessageStatus.BOUNCED, said.op("~*")(ORG_FILTER_TEXT))
+
+
 def live_letter(domain_id: _DomainId) -> ColumnElement[bool]:
-    """У домена есть письмо, которое дошло, в пути или остановлено человеком."""
+    """У домена есть письмо, которое дошло, в пути или остановлено человеком, — или письмо,
+    которое отклонил шлюз организации: следующий адрес упрётся в тот же шлюз."""
     letter = aliased(MessageModel)
-    return select(letter.id).where(letter.domain_id == domain_id, ~dead(letter)).exists()
+    held = or_(~dead(letter), org_refused(letter))
+    return select(letter.id).where(letter.domain_id == domain_id, held).exists()
 
 
 def in_other_role(letter: _Letter, campaign: _Campaign, stage: Stage) -> ColumnElement[bool]:

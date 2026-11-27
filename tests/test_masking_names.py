@@ -31,6 +31,7 @@ from backend.features.letters.compose import Rendered
 from backend.features.letters.rewrite import Personalization, RewriteClient, RewriteResult
 from backend.features.letters.template import Zone, ZoneKind
 from backend.features.replies.binding import Binding, BindingWay, Unbound
+from backend.features.replies.classify import Verdict
 from backend.features.replies.extract import ExtractClient, Extracted
 from backend.features.replies.inbound import AttachedText, Incoming
 from backend.features.replies.mime import from_form, sender_name
@@ -581,7 +582,7 @@ class TestSenderName:
         incoming = from_form({"from": "Elena Petrova <elena@site.test>", "text": "Hi"})
         stored = ReplyRepository(session).add(
             incoming,
-            kind=ReplyKind.HUMAN,
+            verdict=Verdict(kind=ReplyKind.HUMAN),
             thread_id=None,
             message_id=None,
             found=None,

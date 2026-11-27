@@ -2,8 +2,9 @@
 
 Проверка прода 25.11.2026: подтверждения служб поддержки без номера заявки, пришедшие до правила
 «служба обещает ответить», остались «ответом человека» и ждали его в «Диалогах с рекламодателями».
-Проверяется: показ называет такой ответ и правило и ничего не пишет; запись делает его автоответом;
-живой ответ, ответ с решением человека и ответ продаж не трогаются.
+Проверяется: показ называет такой ответ и правило и ничего не пишет; запись делает его автоответом
+и кладёт правило причиной (`kind_reason`, 27.11.2026); живой ответ, ответ с решением человека и
+ответ продаж не трогаются.
 """
 
 from __future__ import annotations
@@ -76,6 +77,8 @@ class TestRelabel:
 
         await session.refresh(reply)
         assert reply.kind is ReplyKind.AUTO_REPLY
+        # Причина — правило, которое назвало ответ автоответом: заголовков в базе нет.
+        assert reply.kind_reason == "служба обещает ответить"
         assert "Записано: автоответом стали 1." in capsys.readouterr().out
         assert await relabel.candidates(session) == []
 
@@ -111,6 +114,7 @@ class TestRelabel:
         assert kept is not None
         await session.refresh(kept)
         assert kept.kind is ReplyKind.HUMAN
+        assert kept.kind_reason is None
 
     async def test_a_live_answer_stays_a_human(
         self,

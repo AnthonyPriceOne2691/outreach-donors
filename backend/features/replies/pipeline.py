@@ -164,7 +164,7 @@ class Inbox:
 
         reply = self._repo.add(
             incoming,
-            kind=verdict.kind,
+            verdict=verdict,
             thread_id=addressee.message.thread_id if addressee else None,
             message_id=addressee.message.id if addressee else None,
             found=None,

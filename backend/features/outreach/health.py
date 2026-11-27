@@ -36,6 +36,11 @@
 Такая отсрочка в журнал не пишется, такой отказ в окне не считается. Вид — по тексту письма,
 а не по записанному: письма, ушедшие до этой правки, судятся так же, без правки данных.
 
+**Одно письмо — один мягкий сигнал** (27.11.2026). Платформа повторяет отложенное письмо и о
+каждой попытке шлёт отсрочку: четыре отсрочки одного письма за три минуты урезали лимит ящика
+вдвое на сутки, а письмо через пять минут дошло. Письмо, которое уже откладывалось (`repeat`: отсрочку у письма пишут после журнала ящика,
+`events.apply_events`), нового сигнала не даёт — ни отсрочкой, ни мягким отказом после неё.
+
 Повтор события — не второй сигнал: платформа доставляет пачку «хотя бы один раз» и шлёт её
 снова на любой не-2xx. Строка самого события несёт его номер у платформы (`event_id`):
 событие, уже лежащее в журнале, слышано — ни второй строки, ни второго вердикта. Гонку двух
@@ -96,10 +101,16 @@ def _note(
 
 
 async def listen(
-    session: AsyncSession, box_id: int, event: DeliveryEvent, moment: datetime
+    session: AsyncSession,
+    box_id: int,
+    event: DeliveryEvent,
+    moment: datetime,
+    *,
+    repeat: bool = False,
 ) -> AutoPause | None:
     """Событие доставки письма с ящика `box_id` — глазами политики его этапа: пауза, которую оно
-    поставило (ящик, этап и почему), или `None`.
+    поставило (ящик, этап и почему), или `None`. `repeat` — письмо уже откладывалось: его мягкий
+    сигнал уже в журнале (шапка модуля).
 
     Событие, которое журнал уже знает по номеру, слышано сразу, до записи: повтор пачки не судит
     ящик дважды."""
@@ -110,7 +121,7 @@ async def listen(
     if await _known(session, event.event_id):
         return None
     at = event.at or moment
-    if not await _noted(session, sender, rules, event, at):
+    if not await _noted(session, sender, rules, event, at, repeat=repeat):
         return None
     judged = event.kind in JUDGED and sender.enabled
     why = await _verdict(session, sender, rules, at) if judged else None
@@ -144,10 +155,12 @@ async def _noted(
     rules: SoftSignals,
     event: DeliveryEvent,
     at: datetime,
+    *,
+    repeat: bool,
 ) -> bool:
     """Строки самого события: мягкий сигнал (и снижение лимита на сутки) или жалоба.
     `False` — строку события только что записала другая доставка той же пачки."""
-    row = _row(event)
+    row = _row(event, repeat=repeat)
     if row is None:
         return True
     kind, detail = row
@@ -159,12 +172,13 @@ async def _noted(
     return True
 
 
-def _row(event: DeliveryEvent) -> tuple[str, str] | None:
+def _row(event: DeliveryEvent, *, repeat: bool) -> tuple[str, str] | None:
     """Строка журнала самого события — вид и подробность: мягкий сигнал или жалоба. Сигнал о
-    стороне получателя (`NOT_THE_BOX`) — не о ящике, строки нет; жалоба — всегда о нём."""
+    стороне получателя (`NOT_THE_BOX`) — не о ящике, а сигнал письма, которое уже откладывалось
+    (`repeat`), — уже в журнале: строки нет. Жалоба — всегда о ящике."""
     signal = _signal(event.kind, event.soft)
     if signal is not None:
-        if reason_of(event.reason, status=event.status).kind in NOT_THE_BOX:
+        if repeat or reason_of(event.reason, status=event.status).kind in NOT_THE_BOX:
             return None
         return signal, event.reason or signal
     return ("complaint", "жалоба на спам") if event.kind == "spamreport" else None

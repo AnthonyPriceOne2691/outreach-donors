@@ -37,7 +37,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
-from backend.features.replies import outcome, robots, stage_rules
+from backend.features.replies import classify, outcome, robots, stage_rules
 from backend.features.replies.binding import Binding
 from backend.features.replies.donor_card import DonorCardWrites
 from backend.features.replies.extract import Extracted
@@ -377,7 +377,7 @@ class ReplyRepository(DonorCardWrites):
         self,
         incoming: Incoming,
         *,
-        kind: ReplyKind,
+        verdict: classify.Verdict,
         thread_id: int | None,
         message_id: int | None,
         found: Extracted | None,
@@ -385,7 +385,7 @@ class ReplyRepository(DonorCardWrites):
     ) -> ReplyModel:
         """Записать ответ вместе с исходным текстом.
 
-        Разобранное приходит одним значением, а не восемью полями: восемь
+        Разобранное и вид с его причиной (`Verdict`) приходят одним значением, а не полями: восемь
         полей рядом означают, что одно из них однажды забудут передать,
         и письмо ляжет в базу без цены, которую из него достали.
 
@@ -397,7 +397,8 @@ class ReplyRepository(DonorCardWrites):
         reply = ReplyModel(
             thread_id=thread_id,
             message_id=message_id,
-            kind=kind,
+            kind=verdict.kind,
+            kind_reason=verdict.reason,
             raw_body=incoming.text,
             inbound_message_id=incoming.message_id or None,
             from_email=incoming.from_email[:255],

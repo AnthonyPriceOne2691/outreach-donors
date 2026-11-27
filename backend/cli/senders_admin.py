@@ -17,6 +17,14 @@
     outreach senders
     outreach sender-resume --email a@mail-b.example          # показать
     outreach sender-resume --email a@mail-b.example --yes    # снять паузу, разгон на месте
+    outreach sender-cap --stage sales --daily-cap 25         # показать новый дневной потолок
+    outreach sender-cap --stage sales --daily-cap 25 --yes   # записать
+
+**Дневной потолок ящика меняется только здесь** (27.11.2026): экрана для него нет, а правка базы
+руками в обход штатной команды на проде не делается. Потолок держит и разгон: ступени
+`OUTREACH_WARMUP_CAPS` кончаются своим числом, и выше последней ступени ящик не пойдёт, сколько
+бы ни стояло в потолке, — команда об этом предупреждает. Добивки считаются своим потолком
+(`OUTREACH_FOLLOWUP_PER_SENDER_PER_DAY`), команда его только называет.
 
 Один домен — один ящик по умолчанию: домен берётся из адреса. Так
 заведена первая двадцатка; несколько ящиков на домене платформа
@@ -37,12 +45,16 @@ from backend.config.startup_checks import check_storage
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, SenderStatus, Stage
 from backend.features.core.models.outreach import SenderModel
-from backend.features.outreach.senders import resume, warmup_state
+from backend.features.outreach.senders import WARMUP_STEPS, resume, warmup_state
 
 EXIT_OK = 0
 EXIT_TAKEN = 3
 EXIT_BAD_ADDRESS = 4
 EXIT_NOT_FOUND = 5
+EXIT_BAD_CAP = 6
+
+#: Выше — опечатка, а не решение для консоли: подъём потолка идёт шагами по 5 (27.11.2026).
+MAX_DAILY_CAP = 50
 
 
 async def cmd_sender_add(args: argparse.Namespace) -> int:
@@ -123,19 +135,15 @@ async def cmd_sender_resume(args: argparse.Namespace) -> int:
     """Снять паузу с ящиков, не трогая разгон; без `--yes` — только показать. Ящик вне паузы не
     трогается, незнакомый адрес останавливает всю команду до записи."""
     check_storage()
-    wanted = list(dict.fromkeys(email.strip().lower() for email in args.email))
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            found = await session.scalars(select(SenderModel).where(SenderModel.email.in_(wanted)))
-            boxes = {box.email: box for box in found.all()}
-            missing = [email for email in wanted if email not in boxes]
-            if missing:
-                print(f"Таких ящиков нет: {', '.join(missing)}. Ничего не менял")
+            boxes = await _named_boxes(session, args.email)
+            if boxes is None:
                 return EXIT_NOT_FOUND
-            for email in wanted:
-                await _resume_one(session, boxes[email], write=args.yes)
+            for box in boxes:
+                await _resume_one(session, box, write=args.yes)
             await session.commit()
     finally:
         await engine.dispose()
@@ -164,6 +172,86 @@ async def _resume_one(session: AsyncSession, box: SenderModel, *, write: bool) -
     print(f"{box.email}: пауза снята, сегодня по разгону — {warmup_state(box).allowance}")
 
 
+async def cmd_sender_cap(args: argparse.Namespace) -> int:
+    """Сменить дневной потолок первых писем у ящиков этапа или у названных; без `--yes` — только
+    показать. Незнакомый адрес останавливает всю команду до записи."""
+    check_storage()
+    cap = int(args.daily_cap)
+    if not 1 <= cap <= MAX_DAILY_CAP:
+        print(f"Потолок {cap} вне 1–{MAX_DAILY_CAP}. Ничего не менял")
+        return EXIT_BAD_CAP
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            boxes = await _boxes_for_cap(session, args)
+            if boxes is None:
+                return EXIT_NOT_FOUND
+            for box in boxes:
+                await _cap_one(session, box, cap, write=args.yes)
+            if args.yes:
+                await session.commit()
+    finally:
+        await engine.dispose()
+    if cap > WARMUP_STEPS[-1]:
+        print(
+            f"Разгон кончается ступенью {WARMUP_STEPS[-1]} (OUTREACH_WARMUP_CAPS): выше неё ящик "
+            "с разгоном не пойдёт — сначала добавить ступени"
+        )
+    print(f"Добивки — свой потолок: {cfg.FOLLOWUP_PER_SENDER_PER_DAY} в сутки с ящика (.env)")
+    if not args.yes:
+        print("Только показ. Записать: добавить --yes")
+    return EXIT_OK
+
+
+async def _boxes_for_cap(
+    session: AsyncSession, args: argparse.Namespace
+) -> list[SenderModel] | None:
+    """Ящики команды: этапа целиком или названные по адресу. `None` — адреса нет в базе."""
+    if args.stage:
+        found = await session.scalars(
+            select(SenderModel)
+            .where(SenderModel.stage == Stage(args.stage))
+            .order_by(SenderModel.id)
+        )
+        return list(found.all())
+    return await _named_boxes(session, args.email)
+
+
+async def _named_boxes(session: AsyncSession, emails: list[str]) -> list[SenderModel] | None:
+    """Ящики по адресам — без учёта регистра и краевых пробелов, без повторов, в порядке
+    названного. `None` — какого-то адреса нет: команда останавливается до записи."""
+    wanted = list(dict.fromkeys(email.strip().lower() for email in emails))
+    found = await session.scalars(select(SenderModel).where(SenderModel.email.in_(wanted)))
+    boxes = {box.email: box for box in found.all()}
+    missing = [email for email in wanted if email not in boxes]
+    if missing:
+        print(f"Таких ящиков нет: {', '.join(missing)}. Ничего не менял")
+        return None
+    return [boxes[email] for email in wanted]
+
+
+async def _cap_one(session: AsyncSession, box: SenderModel, cap: int, *, write: bool) -> None:
+    """Один ящик: был и станет, сегодня по разгону; записать и в журнал, если велено."""
+    was = box.daily_cap
+    if was == cap:
+        print(f"{box.email}: потолок уже {cap}, не трогаю")
+        return
+    box.daily_cap = cap
+    today = warmup_state(box).allowance
+    print(f"{box.email}: потолок {was} → {cap}, сегодня по разгону — {today}")
+    if not write:
+        box.daily_cap = was
+        return
+    await AccessRepository(session).record(
+        AuditAction.USER_UPDATED,
+        author_id=None,
+        target=f"sender:{box.id}",
+        details={"действие": "дневной потолок из консоли", "было": was, "стало": cap},
+        stage=box.stage,
+    )
+
+
 def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     add = sub.add_parser("sender-add", help="завести домен рассылки и его ящик")
     add.add_argument("--email", required=True, help="адрес ящика, например outreach@mail-a.example")
@@ -188,3 +276,12 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         "--email", action="append", required=True, help="адрес ящика; можно несколько"
     )
     back.add_argument("--yes", action="store_true", help="записать; без него — только показать")
+
+    cap = sub.add_parser("sender-cap", help="сменить дневной потолок первых писем ящиков")
+    which = cap.add_mutually_exclusive_group(required=True)
+    which.add_argument("--stage", choices=[stage.value for stage in Stage], help="все ящики этапа")
+    which.add_argument("--email", action="append", help="адрес ящика; можно несколько")
+    cap.add_argument(
+        "--daily-cap", type=int, required=True, help=f"новый потолок, 1–{MAX_DAILY_CAP}"
+    )
+    cap.add_argument("--yes", action="store_true", help="записать; без него — только показать")

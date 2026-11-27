@@ -33,7 +33,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_delivery_events import _keypair
-from tests.test_delivery_events_repeat import _deliver, _event, _letter
+from tests.test_delivery_events_repeat import _deliver, _event, _letter, _letters
 from tests.test_sales_soft_signals import NOW, _box, _journal
 from tests.test_sales_stage_bridge import FakeSalesMail
 from tests.test_silence_watchdog import _letter as _hanging
@@ -206,14 +206,31 @@ async def test_a_refusal_on_the_recipient_side_leaves_no_signal(
     assert await health.cuts(session, Stage.SALES, NOW) == {}
 
 
-async def test_a_refusal_about_us_is_still_a_signal(session: AsyncSession) -> None:
-    box = await _box(session, Stage.SALES, total=1)
-    letter = await _letter(session, box)
-    greylisted = "451 4.7.1 Greylisting in action, please come back later"
+GREYLISTED = "451 4.7.1 Greylisting in action, please come back later"
 
-    await apply_events(session, [_said(letter, "deferred", greylisted) for _ in range(3)], now=NOW)
+
+async def test_a_refusal_about_us_is_still_a_signal(session: AsyncSession) -> None:
+    box = await _box(session, Stage.SALES, total=3)
+    letters = await _letters(session, box, 3)
+
+    await apply_events(session, [_said(n, "deferred", GREYLISTED) for n in letters], now=NOW)
 
     assert await _journal(session, box) == ["deferred", "deferred", "deferred", "limit_cut"]
+
+
+async def test_one_letter_deferred_again_and_again_is_one_signal(session: AsyncSession) -> None:
+    """27.11.2026: платформа четыре раза за три минуты откладывала одно письмо — лимит ящика
+    падал вдвое на сутки, а письмо дошло. Повторы отсрочки и мягкий отказ того же письма — не
+    новые сигналы: строка одна, снижения нет."""
+    box = await _box(session, Stage.SALES, total=1)
+    letter = await _letter(session, box)
+
+    for _ in range(4):
+        await apply_events(session, [_said(letter, "deferred", GREYLISTED)], now=NOW)
+    await apply_events(session, [_said(letter, "bounce", GREYLISTED, soft=True)], now=NOW)
+
+    assert await _journal(session, box) == ["deferred"]
+    assert await health.cuts(session, Stage.SALES, NOW) == {}
 
 
 async def test_a_code_alone_names_the_recipient_side(session: AsyncSession) -> None:

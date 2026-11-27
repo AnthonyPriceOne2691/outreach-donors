@@ -702,9 +702,9 @@
       "worst": "redraft:189"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 495,
+      "lines": 499,
       "complexity": 10,
-      "worst": "of:362"
+      "worst": "of:365"
     },
     "backend/api/topics/__init__.py": {
       "lines": 1,
@@ -862,9 +862,9 @@
       "worst": "_report:218"
     },
     "backend/cli/main.py": {
-      "lines": 489,
+      "lines": 495,
       "complexity": 9,
-      "worst": "_print_report:277"
+      "worst": "_print_report:282"
     },
     "backend/cli/model_clients.py": {
       "lines": 41,
@@ -932,9 +932,9 @@
       "worst": "_verify_with:80"
     },
     "backend/cli/senders_admin.py": {
-      "lines": 191,
+      "lines": 288,
       "complexity": 7,
-      "worst": "cmd_sender_resume:122"
+      "worst": "cmd_sender_cap:175"
     },
     "backend/cli/sending_domains.py": {
       "lines": 150,
@@ -1497,7 +1497,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 468,
+      "lines": 475,
       "complexity": 0,
       "worst": "—"
     },
@@ -2247,9 +2247,9 @@
       "worst": "subject_for:91"
     },
     "backend/features/letters/attempts.py": {
-      "lines": 326,
+      "lines": 347,
       "complexity": 2,
-      "worst": "next_address_note:165"
+      "worst": "next_address_note:176"
     },
     "backend/features/letters/autosend.py": {
       "lines": 397,
@@ -2312,9 +2312,9 @@
       "worst": "to_text:92"
     },
     "backend/features/letters/events.py": {
-      "lines": 384,
+      "lines": 393,
       "complexity": 9,
-      "worst": "_addressed:251"
+      "worst": "_addressed:253"
     },
     "backend/features/letters/finishing.py": {
       "lines": 88,
@@ -2722,9 +2722,9 @@
       "worst": "this_hour_of:53"
     },
     "backend/features/outreach/health.py": {
-      "lines": 298,
+      "lines": 312,
       "complexity": 9,
-      "worst": "listen:98"
+      "worst": "listen:103"
     },
     "backend/features/outreach/limits.py": {
       "lines": 153,
@@ -2797,9 +2797,9 @@
       "worst": "decode:92"
     },
     "backend/features/replies/classify.py": {
-      "lines": 420,
+      "lines": 450,
       "complexity": 8,
-      "worst": "_service_promise:270"
+      "worst": "_service_promise:299"
     },
     "backend/features/replies/confirmation.py": {
       "lines": 122,
@@ -2912,12 +2912,12 @@
       "worst": "_letter_words:71"
     },
     "backend/features/replies/relabel.py": {
-      "lines": 125,
+      "lines": 131,
       "complexity": 6,
-      "worst": "candidates:49"
+      "worst": "candidates:51"
     },
     "backend/features/replies/repository.py": {
-      "lines": 499,
+      "lines": 500,
       "complexity": 5,
       "worst": "domain_of:201"
     },
